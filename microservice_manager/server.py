@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -12,7 +13,7 @@ import sys
 import threading
 import time
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,6 +51,7 @@ class ServiceConfig:
     command: str
     env: str = "DEV"
     port: str = ""
+    git: Dict[str, str] = field(default_factory=dict)
 
 
 def load_config() -> Tuple[Path, str, List[ServiceConfig]]:
@@ -69,6 +71,7 @@ def load_config() -> Tuple[Path, str, List[ServiceConfig]]:
             command=item.get("command", default_command),
             env=item.get("env", "DEV"),
             port=str(item.get("port", "")),
+            git=dict(item.get("git") or {}),
         )
         for item in raw_services
     ]
@@ -88,6 +91,9 @@ class ServiceManager:
         self.commands: Dict[str, str] = {service.name: service.command or self.default_command for service in self.services}
         self.logs: Dict[str, List[Dict[str, Any]]] = {service.name: [] for service in self.services}
         self.log_sequence: Dict[str, int] = {service.name: 0 for service in self.services}
+        self.git_logs: Dict[str, List[Dict[str, Any]]] = {service.name: [] for service in self.services}
+        self.git_log_sequence: Dict[str, int] = {service.name: 0 for service in self.services}
+        self.git_cache: Dict[str, Dict[str, Any]] = {}
 
         first = self.services[0].name if self.services else "system"
         self.append_log(first, "Miroservice Manager backend ready.", "system")
@@ -121,6 +127,7 @@ class ServiceManager:
             "port": service.port or self.discover_port(service),
             "path": str(self.service_path(service)),
             "metrics": self.metrics(name),
+            "git": self.git_state(service),
         }
 
     def service_path(self, service: ServiceConfig) -> Path:
@@ -141,6 +148,7 @@ class ServiceManager:
                     "command": service.command or self.default_command,
                     "env": service.env,
                     "port": service.port,
+                    "git": service.git,
                 }
                 for service in self.services
             ],
@@ -174,11 +182,73 @@ class ServiceManager:
             self.commands[name] = command
             self.logs[name] = []
             self.log_sequence[name] = 0
+            self.git_logs[name] = []
+            self.git_log_sequence[name] = 0
             self.last_runtime_seconds[name] = None
             self.last_exit_codes[name] = None
             self.save_config()
             self.append_log(name, f"Service added: {directory}", "system")
+            self.append_git_log(name, f"Git terminal ready in {directory}", "system")
         return {"ok": True, "message": f"{name} added.", "service": self.service_state(name)}
+
+    def update_service(self, current_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        current_name = str(current_name or payload.get("service", "")).strip()
+        name = str(payload.get("name", "")).strip()
+        path = str(payload.get("path", "") or payload.get("directory", "")).strip()
+        command = str(payload.get("command", "") or self.default_command).strip()
+        env = str(payload.get("env", "DEV") or "DEV").strip()
+        port = str(payload.get("port", "") or "").strip()
+
+        if not current_name:
+            return {"ok": False, "message": "Service name is required."}
+        if not name:
+            return {"ok": False, "message": "Service name is required."}
+        if not path:
+            return {"ok": False, "message": "Service path is required."}
+
+        directory = Path(path).expanduser().resolve()
+        if not directory.exists() or not directory.is_dir():
+            return {"ok": False, "message": f"Directory not found: {directory}"}
+
+        with self.lock:
+            self.require_service(current_name)
+            service = self.service_by_name[current_name]
+            if name != current_name and name in self.service_by_name:
+                return {"ok": False, "message": f"Service already exists: {name}"}
+            current_directory = self.service_path(service).expanduser().resolve()
+            if self.is_running(current_name) and (name != current_name or directory != current_directory):
+                return {"ok": False, "message": f"Stop {current_name} before renaming it or changing its path."}
+
+            if name != current_name:
+                self.service_by_name.pop(current_name, None)
+                self.service_by_name[name] = service
+                self.commands[name] = self.commands.pop(current_name, command)
+                self.logs[name] = self.logs.pop(current_name, [])
+                self.log_sequence[name] = self.log_sequence.pop(current_name, 0)
+                self.git_logs[name] = self.git_logs.pop(current_name, [])
+                self.git_log_sequence[name] = self.git_log_sequence.pop(current_name, 0)
+                started = self.started_at.pop(current_name, None)
+                if started is not None:
+                    self.started_at[name] = started
+                self.last_runtime_seconds[name] = self.last_runtime_seconds.pop(current_name, None)
+                self.last_exit_codes[name] = self.last_exit_codes.pop(current_name, None)
+                expected_stop = self.expected_stops.pop(current_name, None)
+                if expected_stop:
+                    self.expected_stops[name] = expected_stop
+                self.processes.pop(current_name, None)
+                self.git_cache.pop(current_name, None)
+
+            service.name = name
+            service.directory = str(directory)
+            service.command = command
+            service.env = env
+            service.port = port
+            self.commands[name] = command
+            self.git_cache.pop(name, None)
+            self.save_config()
+            self.append_log(name, f"Service updated: {directory}", "system")
+            self.append_git_log(name, f"Service config updated: {directory}", "system")
+        return {"ok": True, "message": f"{name} updated.", "service": self.service_state(name)}
 
     def remove_service(self, name: str) -> Dict[str, Any]:
         name = str(name or "").strip()
@@ -191,6 +261,8 @@ class ServiceManager:
             self.commands.pop(name, None)
             self.logs.pop(name, None)
             self.log_sequence.pop(name, None)
+            self.git_logs.pop(name, None)
+            self.git_log_sequence.pop(name, None)
             self.started_at.pop(name, None)
             self.last_runtime_seconds.pop(name, None)
             self.last_exit_codes.pop(name, None)
@@ -251,14 +323,8 @@ class ServiceManager:
             self.last_exit_codes[name] = None
             self.last_runtime_seconds[name] = None
 
-        env = os.environ.copy()
-        env["PATH"] = self.extended_path(env.get("PATH", ""))
-        env["FORCE_COLOR"] = "1"
-        env["PYTHONUNBUFFERED"] = "1"
-        env["TERM"] = env.get("TERM", "xterm-256color")
-
-        shell = shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
-        args = [shell, "-lc", command] if shell.endswith("zsh") or shell.endswith("bash") else [shell, "-c", command]
+        env = self.command_env({"FORCE_COLOR": "1", "PYTHONUNBUFFERED": "1"})
+        args = self.shell_args(command)
 
         self.append_log(name, f"$ {command}", "command")
         self.append_log(name, f"cwd: {cwd}", "system")
@@ -357,17 +423,59 @@ class ServiceManager:
         results = [self.stop(name) for name in names]
         return {"ok": all(result.get("ok") for result in results), "message": "Stop signal sent."}
 
+    def restart(self, name: str, command: Optional[str] = None) -> Dict[str, Any]:
+        name = str(name or "").strip()
+        with self.lock:
+            self.require_service(name)
+            service = self.service_by_name[name]
+            command = (command or self.commands.get(name) or service.command or self.default_command).strip()
+            was_running = self.is_running(name)
+
+        self.append_log(name, "Refreshing app...", "system")
+        if was_running:
+            stop_result = self.stop(name)
+            if not stop_result.get("ok"):
+                return stop_result
+            deadline = time.time() + 8.0
+            while time.time() < deadline:
+                if not self.is_running(name):
+                    break
+                time.sleep(0.1)
+            if self.is_running(name):
+                return {"ok": False, "message": f"{name} did not stop in time."}
+        else:
+            self.append_log(name, f"{name} is not running; starting it.", "system")
+
+        start_result = self.start(name, command)
+        return {
+            "ok": bool(start_result.get("ok")),
+            "message": f"{name} refreshed." if start_result.get("ok") else start_result.get("message", "Refresh failed."),
+            "start": start_result,
+        }
+
     def clear(self, name: str) -> Dict[str, Any]:
         with self.lock:
             self.require_service(name)
             self.logs[name] = []
             return {"ok": True, "message": f"{name} logs cleared.", "next": self.log_sequence[name]}
 
+    def clear_git(self, name: str) -> Dict[str, Any]:
+        with self.lock:
+            self.require_service(name)
+            self.git_logs[name] = []
+            return {"ok": True, "message": f"{name} git logs cleared.", "next": self.git_log_sequence[name]}
+
     def logs_after(self, name: str, after: int) -> Dict[str, Any]:
         with self.lock:
             self.require_service(name)
             entries = [entry for entry in self.logs[name] if entry["id"] > after]
             return {"entries": entries, "next": self.log_sequence[name]}
+
+    def git_logs_after(self, name: str, after: int) -> Dict[str, Any]:
+        with self.lock:
+            self.require_service(name)
+            entries = [entry for entry in self.git_logs[name] if entry["id"] > after]
+            return {"entries": entries, "next": self.git_log_sequence[name]}
 
     def read_process_output(self, name: str, process: subprocess.Popen[str]) -> None:
         assert process.stdout is not None
@@ -418,6 +526,25 @@ class ServiceManager:
             )
             if len(self.logs[name]) > 5000:
                 self.logs[name] = self.logs[name][-5000:]
+
+    def append_git_log(self, name: str, text: str, level: str = "plain") -> None:
+        timestamp = time.strftime("%H:%M:%S")
+        clean_text = self.clean_output(text)
+        line = clean_text if clean_text.startswith("$ ") else f"[{timestamp}] {clean_text}"
+        with self.lock:
+            if name not in self.git_logs:
+                return
+            self.git_log_sequence[name] += 1
+            self.git_logs[name].append(
+                {
+                    "id": self.git_log_sequence[name],
+                    "time": timestamp,
+                    "line": line,
+                    "level": level,
+                }
+            )
+            if len(self.git_logs[name]) > 5000:
+                self.git_logs[name] = self.git_logs[name][-5000:]
 
     def classify_line(self, line: str) -> str:
         lowered = self.clean_output(line).lower()
@@ -582,14 +709,398 @@ class ServiceManager:
         except Exception:
             return ""
 
+    def git_state(self, service: ServiceConfig, force: bool = False) -> Dict[str, Any]:
+        cached = self.git_cache.get(service.name)
+        now = time.time()
+        if not force and cached and now - float(cached.get("at", 0)) < 3.0:
+            return dict(cached["state"])
+
+        state = self.compute_git_state(service)
+        self.git_cache[service.name] = {"at": now, "state": state}
+        return dict(state)
+
+    def compute_git_state(self, service: ServiceConfig) -> Dict[str, Any]:
+        path = self.service_path(service)
+        base: Dict[str, Any] = {
+            "isRepo": False,
+            "branch": "",
+            "upstream": "",
+            "ahead": 0,
+            "behind": 0,
+            "dirty": False,
+            "dirtyCount": 0,
+            "originDevelopment": False,
+            "developmentAhead": 0,
+            "developmentBehind": 0,
+            "developmentStatus": "unknown",
+            "developmentLabel": "NO GIT",
+            "lastDevelopmentSync": service.git.get("development_synced_at", ""),
+            "lastDevelopmentSyncStatus": service.git.get("development_sync_status", ""),
+            "lastDevelopmentSyncMessage": service.git.get("development_sync_message", ""),
+        }
+        if not path.exists():
+            base["developmentLabel"] = "MISSING"
+            return base
+
+        ok, _, _, _ = self.run_git(path, ["rev-parse", "--is-inside-work-tree"], timeout=2)
+        if not ok:
+            return base
+
+        branch_ok, branch, _, _ = self.run_git(path, ["rev-parse", "--abbrev-ref", "HEAD"], timeout=2)
+        if not branch_ok or branch == "HEAD":
+            _, branch, _, _ = self.run_git(path, ["rev-parse", "--short", "HEAD"], timeout=2)
+
+        dirty_ok, dirty_out, _, _ = self.run_git(path, ["status", "--porcelain"], timeout=3)
+        dirty_lines = [line for line in dirty_out.splitlines() if line.strip()] if dirty_ok else []
+
+        upstream = ""
+        ahead = 0
+        behind = 0
+        upstream_ok, upstream_out, _, _ = self.run_git(
+            path,
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            timeout=2,
+        )
+        if upstream_ok:
+            upstream = upstream_out.strip()
+            counts_ok, counts, _, _ = self.run_git(path, ["rev-list", "--left-right", "--count", "HEAD...@{u}"], timeout=3)
+            if counts_ok:
+                ahead, behind = self.parse_ahead_behind(counts)
+
+        origin_dev_ok, _, _, _ = self.run_git(
+            path,
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/development"],
+            timeout=2,
+        )
+        local_dev_ok, _, _, _ = self.run_git(
+            path,
+            ["show-ref", "--verify", "--quiet", "refs/heads/development"],
+            timeout=2,
+        )
+
+        development_ahead = 0
+        development_behind = 0
+        development_status = "unavailable"
+        development_label = "NO ORIGIN/DEV"
+        if origin_dev_ok:
+            compare_ref = "HEAD" if branch != "development" else "development"
+            if branch == "development" or local_dev_ok:
+                compare_ref = "development" if local_dev_ok else "HEAD"
+            counts_ok, counts, _, _ = self.run_git(
+                path,
+                ["rev-list", "--left-right", "--count", f"{compare_ref}...origin/development"],
+                timeout=3,
+            )
+            if counts_ok:
+                development_ahead, development_behind = self.parse_ahead_behind(counts)
+                if development_ahead == 0 and development_behind == 0:
+                    development_status = "synced"
+                    development_label = "SYNCED"
+                elif development_behind > 0 and development_ahead > 0:
+                    development_status = "diverged"
+                    development_label = f"{development_ahead} ahead / {development_behind} behind"
+                elif development_behind > 0:
+                    development_status = "behind"
+                    development_label = f"{development_behind} behind"
+                else:
+                    development_status = "ahead"
+                    development_label = f"{development_ahead} ahead"
+
+        return {
+            **base,
+            "isRepo": True,
+            "branch": branch.strip(),
+            "upstream": upstream,
+            "ahead": ahead,
+            "behind": behind,
+            "dirty": bool(dirty_lines),
+            "dirtyCount": len(dirty_lines),
+            "originDevelopment": origin_dev_ok,
+            "localDevelopment": local_dev_ok,
+            "developmentAhead": development_ahead,
+            "developmentBehind": development_behind,
+            "developmentStatus": development_status,
+            "developmentLabel": development_label,
+        }
+
+    def parse_ahead_behind(self, counts: str) -> Tuple[int, int]:
+        parts = counts.strip().split()
+        if len(parts) < 2:
+            return 0, 0
+        try:
+            return int(parts[0]), int(parts[1])
+        except ValueError:
+            return 0, 0
+
+    def git_action(self, name: str, action: str) -> Dict[str, Any]:
+        name = str(name or "").strip()
+        action = str(action or "").strip()
+        with self.lock:
+            self.require_service(name)
+            service = self.service_by_name[name]
+
+        if action == "refresh":
+            result = self.git_refresh(service)
+            git = self.git_state(service, force=True)
+            return {**result, "git": git}
+
+        path = self.service_path(service)
+        ok, _, stderr, _ = self.run_git(path, ["rev-parse", "--is-inside-work-tree"], timeout=2)
+        if not ok:
+            return {"ok": False, "message": stderr.strip() or f"{name} is not a git repository."}
+
+        actions = {
+            "sync-current-branch": self.git_sync_current_branch,
+            "sync-development": self.git_sync_development,
+        }
+        handler = actions.get(action)
+        if not handler:
+            return {"ok": False, "message": f"Unknown git action: {action}"}
+
+        result = handler(service)
+        with self.lock:
+            sync_key = "development" if action == "sync-development" else "current"
+            service.git[f"{sync_key}_synced_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            service.git[f"{sync_key}_sync_status"] = "ok" if result.get("ok") else "error"
+            service.git[f"{sync_key}_sync_message"] = str(result.get("message", ""))[:500]
+            if action == "sync-development":
+                service.git["development_synced_at"] = service.git[f"{sync_key}_synced_at"]
+                service.git["development_sync_status"] = service.git[f"{sync_key}_sync_status"]
+                service.git["development_sync_message"] = service.git[f"{sync_key}_sync_message"]
+            self.save_config()
+            self.git_cache.pop(service.name, None)
+        git = self.git_state(service, force=True)
+        return {**result, "git": git}
+
+    def git_refresh(self, service: ServiceConfig) -> Dict[str, Any]:
+        self.git_cache.pop(service.name, None)
+        self.append_git_log(service.name, "Git status refreshed.", "system")
+        return {"ok": True, "message": "Git status refreshed."}
+
+    def git_fetch(self, service: ServiceConfig) -> Dict[str, Any]:
+        return self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
+
+    def git_sync_current_branch(self, service: ServiceConfig) -> Dict[str, Any]:
+        fetch_result = self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
+        if not fetch_result.get("ok"):
+            return fetch_result
+
+        git = self.compute_git_state(service)
+        branch = str(git.get("branch", "")).strip()
+        upstream = str(git.get("upstream", "")).strip()
+        if not branch or branch == "HEAD":
+            return {"ok": False, "message": "Current branch could not be resolved."}
+
+        target = upstream or f"origin/{branch}"
+        if not upstream:
+            path = self.service_path(service)
+            remote_ok, _, _, _ = self.run_git(
+                path,
+                ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                timeout=2,
+            )
+            if not remote_ok:
+                return {"ok": False, "message": f"No upstream or origin/{branch} branch was found."}
+
+        merge_result = self.run_git_action(service, f"merge {target}", ["merge", target])
+        return {
+            "ok": bool(merge_result.get("ok")),
+            "message": "\n".join(
+                part for part in [str(fetch_result.get("message", "")).strip(), str(merge_result.get("message", "")).strip()] if part
+            ),
+        }
+
+    def git_checkout_development(self, service: ServiceConfig) -> Dict[str, Any]:
+        path = self.service_path(service)
+        local_ok, _, _, _ = self.run_git(path, ["show-ref", "--verify", "--quiet", "refs/heads/development"], timeout=2)
+        origin_ok, _, _, _ = self.run_git(path, ["show-ref", "--verify", "--quiet", "refs/remotes/origin/development"], timeout=2)
+        if local_ok:
+            return self.run_git_action(service, "checkout development", ["checkout", "development"])
+        if origin_ok:
+            return self.run_git_action(
+                service,
+                "checkout -b development --track origin/development",
+                ["checkout", "-b", "development", "--track", "origin/development"],
+            )
+        return {"ok": False, "message": "origin/development branch was not found. Run fetch first."}
+
+    def git_sync_development(self, service: ServiceConfig) -> Dict[str, Any]:
+        steps = [
+            ("fetch origin --prune", ["fetch", "origin", "--prune"]),
+            ("merge origin/development", ["merge", "origin/development"]),
+        ]
+        return self.run_git_steps(service, steps)
+
+    def git_merge_origin_development(self, service: ServiceConfig) -> Dict[str, Any]:
+        steps = [
+            ("fetch origin --prune", ["fetch", "origin", "--prune"]),
+            ("merge --no-edit origin/development", ["merge", "--no-edit", "origin/development"]),
+        ]
+        return self.run_git_steps(service, steps)
+
+    def run_git_steps(self, service: ServiceConfig, steps: List[Tuple[str, List[str]]]) -> Dict[str, Any]:
+        messages = []
+        for label, args in steps:
+            result = self.run_git_action(service, label, args)
+            messages.append(result.get("message", label))
+            if not result.get("ok"):
+                return {"ok": False, "message": "\n".join(messages)}
+        return {"ok": True, "message": "\n".join(messages)}
+
+    def run_git_action(self, service: ServiceConfig, label: str, args: List[str]) -> Dict[str, Any]:
+        path = self.service_path(service)
+        self.append_git_log(service.name, f"$ git {label}", "command")
+        ok, stdout, stderr, code = self.run_git(path, args, timeout=90)
+        output = "\n".join(part for part in [stdout.strip(), stderr.strip()] if part)
+        if output:
+            for line in output.splitlines():
+                self.append_git_log(service.name, line, self.classify_line(line) if ok else "error")
+        if ok:
+            message = output or f"git {label} completed."
+            self.append_git_log(service.name, message.splitlines()[-1], "success")
+            return {"ok": True, "message": message}
+        message = output or f"git {label} failed with code {code}."
+        self.append_git_log(service.name, message.splitlines()[-1], "error")
+        return {"ok": False, "message": message}
+
+    def run_git_terminal_command(self, name: str, command: str) -> Dict[str, Any]:
+        name = str(name or "").strip()
+        command = str(command or "").strip()
+        if not command:
+            return {"ok": False, "message": "Command is required."}
+
+        with self.lock:
+            self.require_service(name)
+            service = self.service_by_name[name]
+
+        if command == "clear":
+            return self.clear_git(name)
+
+        cwd = self.service_path(service)
+        if not cwd.exists():
+            self.append_git_log(name, f"Directory not found: {cwd}", "error")
+            return {"ok": False, "message": f"Directory not found: {cwd}"}
+
+        args = self.shell_args(command)
+        self.append_git_log(name, f"$ {command}", "command")
+        try:
+            result = subprocess.run(
+                args,
+                cwd=str(cwd),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=120,
+                env=self.command_env({"GIT_MERGE_AUTOEDIT": "no"}),
+            )
+        except subprocess.TimeoutExpired as exc:
+            output = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            for line in output.splitlines():
+                self.append_git_log(name, line, self.classify_line(line))
+            self.append_git_log(name, "Command timed out.", "error")
+            return {"ok": False, "message": "Command timed out."}
+        except Exception as exc:
+            self.append_git_log(name, str(exc), "error")
+            return {"ok": False, "message": str(exc)}
+
+        output = result.stdout.strip()
+        if output:
+            for line in output.splitlines():
+                self.append_git_log(name, line, self.classify_line(line) if result.returncode == 0 else "error")
+        level = "success" if result.returncode == 0 else "error"
+        self.append_git_log(name, f"Process exited with code {result.returncode}.", level)
+        with self.lock:
+            self.git_cache.pop(name, None)
+        return {
+            "ok": result.returncode == 0,
+            "message": output or f"Process exited with code {result.returncode}.",
+            "git": self.git_state(service, force=True),
+        }
+
+    def run_git(self, path: Path, args: List[str], timeout: int = 20) -> Tuple[bool, str, str, int]:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=str(path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=timeout,
+                env={
+                    **os.environ,
+                    "PATH": self.extended_path(os.environ.get("PATH", "")),
+                    "GIT_MERGE_AUTOEDIT": "no",
+                },
+            )
+            return result.returncode == 0, result.stdout.strip(), result.stderr.strip(), result.returncode
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            return False, stdout.strip(), (stderr.strip() or "Git command timed out."), 124
+        except Exception as exc:
+            return False, "", str(exc), 1
+
     def extended_path(self, current: str) -> str:
-        common = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        home = Path.home()
+        nvm_bins = sorted(glob.glob(str(home / ".nvm" / "versions" / "node" / "*" / "bin")), reverse=True)
+        common = [
+            str(home / ".local" / "share" / "pnpm"),
+            str(home / "Library" / "pnpm"),
+            str(home / ".volta" / "bin"),
+            str(home / ".asdf" / "shims"),
+            str(home / ".bun" / "bin"),
+            str(home / ".yarn" / "bin"),
+            str(home / ".npm-global" / "bin"),
+            *nvm_bins,
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
         existing = [item for item in current.split(os.pathsep) if item]
         combined: List[str] = []
         for item in [*common, *existing]:
             if item not in combined:
                 combined.append(item)
         return os.pathsep.join(combined)
+
+    def command_env(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        env = os.environ.copy()
+        env["PATH"] = self.extended_path(env.get("PATH", ""))
+        env["TERM"] = env.get("TERM", "xterm-256color")
+        if extra:
+            env.update(extra)
+        if env.get("FORCE_COLOR"):
+            env.pop("NO_COLOR", None)
+        return env
+
+    def shell_args(self, command: str) -> List[str]:
+        shell = shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
+        if shell.endswith("zsh"):
+            startup = (
+                'for f in "$HOME/.zprofile" "$HOME/.zshrc"; do '
+                '[ -r "$f" ] && source "$f"; '
+                "done; hash -r 2>/dev/null || true"
+            )
+            return [shell, "-lc", f"{startup}\n{command}"]
+        if shell.endswith("bash"):
+            startup = (
+                'for f in "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do '
+                '[ -r "$f" ] && source "$f"; '
+                "done; hash -r 2>/dev/null || true"
+            )
+            return [shell, "-lc", f"{startup}\n{command}"]
+        return [shell, "-c", command]
 
     def open_path(self, target: str, service_name: Optional[str] = None) -> Dict[str, Any]:
         if target == "config":
@@ -664,6 +1175,11 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
                 service = params.get("service", [""])[0]
                 after = int(params.get("after", ["0"])[0] or 0)
                 self.send_json(self.manager.logs_after(service, after))
+            elif parsed.path == "/api/git/logs":
+                params = parse_qs(parsed.query)
+                service = params.get("service", [""])[0]
+                after = int(params.get("after", ["0"])[0] or 0)
+                self.send_json(self.manager.git_logs_after(service, after))
             else:
                 self.serve_static(parsed.path)
         except Exception as exc:
@@ -686,20 +1202,30 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": all(result.get("ok") for result in results), "results": results})
             elif parsed.path == "/api/stop":
                 self.send_json(self.manager.stop(payload.get("service", "")))
+            elif parsed.path == "/api/refresh":
+                self.send_json(self.manager.restart(payload.get("service", ""), payload.get("command")))
             elif parsed.path == "/api/interrupt":
                 self.send_json(self.manager.interrupt(payload.get("service", "")))
             elif parsed.path == "/api/stop-all":
                 self.send_json(self.manager.stop_all())
             elif parsed.path == "/api/clear":
                 self.send_json(self.manager.clear(payload.get("service", "")))
+            elif parsed.path == "/api/git/clear":
+                self.send_json(self.manager.clear_git(payload.get("service", "")))
             elif parsed.path == "/api/open":
                 self.send_json(self.manager.open_path(payload.get("target", ""), payload.get("service")))
             elif parsed.path == "/api/open-terminal":
                 self.send_json(self.manager.open_terminal(payload.get("service")))
             elif parsed.path == "/api/services/add":
                 self.send_json(self.manager.add_service(payload))
+            elif parsed.path == "/api/services/update":
+                self.send_json(self.manager.update_service(payload.get("service", ""), payload))
             elif parsed.path == "/api/services/remove":
                 self.send_json(self.manager.remove_service(payload.get("service", "")))
+            elif parsed.path == "/api/git/action":
+                self.send_json(self.manager.git_action(payload.get("service", ""), payload.get("action", "")))
+            elif parsed.path == "/api/git/terminal":
+                self.send_json(self.manager.run_git_terminal_command(payload.get("service", ""), payload.get("command", "")))
             elif parsed.path == "/api/choose-folder":
                 self.send_json(self.manager.choose_folder())
             else:

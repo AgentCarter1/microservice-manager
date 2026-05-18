@@ -284,11 +284,12 @@ button:disabled {
 .service-row {
   height: 40px;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 20px auto;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(54px, 88px) 12px 28px;
   gap: 6px;
   align-items: center;
   padding: 0 18px;
   color: var(--text);
+  cursor: pointer;
 }
 
 .service-row-delete {
@@ -301,6 +302,10 @@ button:disabled {
   font: 800 10px "SF Mono", Menlo, Consolas, monospace;
 }
 
+.service-row:hover {
+  background: var(--panel-2);
+}
+
 .service-row.active {
   background: var(--green-dark);
   color: var(--green);
@@ -310,6 +315,25 @@ button:disabled {
   width: 15px;
   height: 15px;
   accent-color: var(--green);
+  cursor: pointer;
+}
+
+.service-row-menu-btn {
+  width: 28px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: 900 16px/1 "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 1px;
+}
+
+.service-row-menu-btn:hover,
+.service-row-menu-btn:focus-visible {
+  border-color: var(--border);
+  color: var(--accent);
 }
 
 .service-icon {
@@ -334,6 +358,38 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.service-branch {
+  min-width: 0;
+  max-width: 88px;
+  justify-self: end;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border: 1px solid rgba(125, 200, 255, 0.24);
+  background: rgba(125, 200, 255, 0.09);
+  color: #a7d9ee;
+  font: 800 9px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.service-branch.dirty {
+  border-color: rgba(243, 189, 99, 0.26);
+  background: rgba(243, 189, 99, 0.1);
+  color: #e8c888;
+}
+
+.service-branch.muted {
+  border-color: rgba(139, 152, 173, 0.18);
+  background: rgba(139, 152, 173, 0.08);
+  color: var(--muted);
+}
+
+.service-row.active .service-branch {
+  border-color: rgba(78, 230, 167, 0.25);
+  background: rgba(78, 230, 167, 0.12);
+  color: #b2f1da;
 }
 
 .dot {
@@ -446,7 +502,7 @@ button:disabled {
   margin: 10px 18px 8px;
   min-height: 62px;
   display: grid;
-  grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(160px, 1fr) auto auto minmax(210px, auto) auto auto auto auto;
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border-soft);
@@ -476,25 +532,168 @@ button:disabled {
   font: 800 11px "SF Mono", Menlo, Consolas, monospace;
 }
 
+.git-summary {
+  min-width: 210px;
+  height: 42px;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 14px;
+  align-content: center;
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+  color: var(--text);
+}
+
+.git-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.git-summary span {
+  color: var(--muted);
+  font: 800 9px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-summary strong {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-summary small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font: 800 9px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-summary.clean .git-sync,
+.git-summary.synced .git-sync {
+  color: var(--green);
+}
+
+.git-summary.behind .git-sync,
+.git-summary.diverged .git-sync,
+.git-summary.dirty .git-sync,
+.git-summary.ahead .git-sync {
+  color: var(--yellow);
+}
+
+.git-summary.missing .git-sync,
+.git-summary.error .git-sync {
+  color: var(--red);
+}
+
+.git-actions-wrap {
+  position: relative;
+  min-width: 158px;
+}
+
+.git-actions-wrap > button {
+  width: 100%;
+}
+
+.git-actions-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
+}
+
+.git-actions-menu button {
+  width: 100%;
+  height: 34px;
+  display: block;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-actions-menu button:hover {
+  background: var(--panel-3);
+  color: var(--accent);
+}
+
+.git-actions-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .terminal-card {
   position: relative;
   min-height: 0;
   display: grid;
-  grid-template-rows: 48px minmax(0, 1fr);
-  margin: 8px 18px 10px;
+  grid-template-rows: 42px minmax(0, 1fr) auto;
   border: 1px solid var(--border);
   background: var(--terminal);
+}
+
+.terminal-console {
+  margin: 8px 18px 10px;
 }
 
 .terminal-head {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px;
+  gap: 12px;
+  padding: 0 10px 0 0;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-console-head {
+  overflow: visible;
+}
+
+.terminal-tabs {
+  align-self: stretch;
+  display: flex;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+}
+
+.terminal-tab {
+  min-width: 112px;
+  height: 100%;
+  padding: 0 18px;
+  border-right: 1px solid var(--border-soft);
+  border-top: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-tab:hover {
+  color: var(--accent);
+  background: var(--panel-2);
+}
+
+.terminal-tab.active {
+  border-top-color: var(--accent);
+  background: var(--terminal);
+  color: var(--accent);
+}
+
+.terminal-tools {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .terminal-spacer {
@@ -556,6 +755,40 @@ button:disabled {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
+}
+
+.git-terminal-output {
+  padding-bottom: 18px;
+}
+
+.git-command-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px 0 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.git-prompt {
+  color: var(--green);
+  font: 800 15px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-command-line input {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 500 13px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-command-line input::placeholder {
+  color: var(--dim);
 }
 
 .terminal-output::selection,
@@ -842,7 +1075,7 @@ button:disabled {
 .modal-service {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px auto;
+  grid-template-columns: minmax(0, 1fr) 16px auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
@@ -921,6 +1154,15 @@ button:disabled {
   font: 800 10px "SF Mono", Menlo, Consolas, monospace;
 }
 
+.edit-service {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
 .modal-empty {
   color: var(--muted);
   font: 800 12px "SF Mono", Menlo, Consolas, monospace;
@@ -946,9 +1188,29 @@ button:disabled {
   .search-wrap,
   .primary,
   .ghost,
-  .icon-button {
+  .icon-button,
+  .git-actions-wrap {
     grid-column: span 2;
     width: 100%;
+  }
+
+  .command-bar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .command-bar > .meta-badge,
+  .command-bar > .git-summary,
+  .command-bar > .git-actions-wrap,
+  .command-bar > .run,
+  .command-bar > .soft {
+    grid-column: span 2;
+  }
+
+  .git-summary {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
   }
 
   .shell {

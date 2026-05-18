@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Miroservice Manager</title>
     <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260517-7" />
+    <link rel="stylesheet" href="/styles.css?v=20260518-3" />
   </head>
   <body>
     <header class="topbar">
@@ -57,26 +57,65 @@
           <input id="commandInput" spellcheck="false" />
           <span id="portBadge" class="meta-badge">PORT=auto</span>
           <span id="envBadge" class="meta-badge">ENV=DEV</span>
+          <div id="gitSummary" class="git-summary" hidden>
+            <div>
+              <span>GIT BRANCH</span>
+              <strong id="gitBranchLabel">--</strong>
+            </div>
+            <div>
+              <span>DEV SYNC</span>
+              <strong id="gitSyncLabel">--</strong>
+            </div>
+            <small id="gitLastSyncLabel">--</small>
+          </div>
+          <div class="git-actions-wrap">
+            <button id="gitActionsBtn" class="soft" type="button">Git Actions v</button>
+            <div id="gitActionsMenu" class="git-actions-menu" hidden>
+              <button data-git-action="refresh" type="button">Refresh</button>
+              <button data-git-action="sync-current-branch" type="button">Sync Current Branch</button>
+              <button data-git-action="sync-development" type="button">Sync Development</button>
+            </div>
+          </div>
+          <button id="refreshAppBtn" class="soft">Refresh App</button>
           <button id="runBtn" class="run">Run</button>
           <button id="stopBtn" class="soft">Stop</button>
         </section>
 
-        <section id="terminalCard" class="terminal-card">
-          <div class="terminal-head">
-            <span>TERMINAL:</span>
-            <strong id="terminalTitle">AUTH</strong>
+        <section id="terminalCard" class="terminal-card terminal-console">
+          <div class="terminal-head terminal-console-head">
+            <div class="terminal-tabs" role="tablist" aria-label="Terminal views">
+              <button id="outputTerminalTabBtn" class="terminal-tab active" type="button">Application</button>
+              <button id="gitTerminalTabBtn" class="terminal-tab" type="button">Git</button>
+            </div>
             <div class="terminal-spacer"></div>
-            <label class="terminal-filter">
-              <span>FILTER</span>
-              <input id="terminalFilterInput" type="search" placeholder="Search logs..." autocomplete="off" />
-            </label>
-            <span id="terminalState" class="state-pill idle">IDLE</span>
-            <span id="uptimeLabel">UP: --:--:--</span>
-            <button id="copyTerminalBtn" class="head-button">Copy</button>
-            <button id="clearBtn" class="head-button">Clear</button>
+            <div id="outputTerminalTools" class="terminal-tools">
+              <label class="terminal-filter">
+                <span>FILTER</span>
+                <input id="terminalFilterInput" type="search" placeholder="Search logs..." autocomplete="off" />
+              </label>
+              <span id="terminalState" class="state-pill idle">IDLE</span>
+              <span id="uptimeLabel">UP: --:--:--</span>
+              <button id="copyTerminalBtn" class="head-button">Copy</button>
+              <button id="clearBtn" class="head-button">Clear</button>
+            </div>
+            <div id="gitTerminalTools" class="terminal-tools" hidden>
+              <label class="terminal-filter">
+                <span>FILTER</span>
+                <input id="gitTerminalFilterInput" type="search" placeholder="Search git logs..." autocomplete="off" />
+              </label>
+              <button id="openGitMacTerminalBtn" class="head-button">Mac Terminal</button>
+              <button id="copyGitTerminalBtn" class="head-button">Copy</button>
+              <button id="clearGitTerminalBtn" class="head-button">Clear</button>
+            </div>
           </div>
           <pre id="terminalOutput" class="terminal-output" tabindex="0"></pre>
-          <div class="metrics">
+          <pre id="gitTerminalOutput" class="terminal-output git-terminal-output" tabindex="0" hidden></pre>
+          <form id="gitTerminalForm" class="git-command-line" hidden>
+            <span class="git-prompt">$</span>
+            <input id="gitCommandInput" spellcheck="false" autocomplete="off" placeholder="git status" />
+            <button id="gitCommandSubmitBtn" type="submit" class="head-button">Enter</button>
+          </form>
+          <div id="terminalMetrics" class="metrics">
             <div>
               <span>CPU</span>
               <strong id="cpuValue">--</strong>
@@ -134,9 +173,12 @@
 
     <div id="serviceContextMenu" class="context-menu" hidden>
       <button id="openServiceContextBtn">Open</button>
+      <button id="refreshServiceContextBtn">Refresh</button>
+      <button id="stopServiceContextBtn">Stop</button>
+      <button id="editServiceContextBtn">Edit</button>
       <button id="deleteServiceContextBtn" class="service-context-danger">Delete</button>
     </div>
 
-    <script src="/app.js?v=20260517-7"></script>
+    <script src="/app.js?v=20260518-3"></script>
   </body>
 </html>

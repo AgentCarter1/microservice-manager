@@ -7,12 +7,21 @@ const state = {
   initialized: false,
   logs: {},
   offsets: {},
+  gitLogs: {},
+  gitOffsets: {},
   filter: "",
   terminalFilter: "",
+  gitTerminalFilter: "",
   terminalFollow: {},
+  gitTerminalFollow: {},
   terminalSelecting: false,
+  gitTerminalSelecting: false,
+  terminalMode: "output",
   modalMode: "add",
+  editingService: null,
   contextService: null,
+  gitBusy: false,
+  gitTerminalBusy: false,
 };
 
 const els = {
@@ -36,12 +45,27 @@ const els = {
   addServiceBtn: document.getElementById("addServiceBtn"),
   selectAllBtn: document.getElementById("selectAllBtn"),
   runBtn: document.getElementById("runBtn"),
+  refreshAppBtn: document.getElementById("refreshAppBtn"),
   stopBtn: document.getElementById("stopBtn"),
   clearBtn: document.getElementById("clearBtn"),
   terminalTitle: document.getElementById("terminalTitle"),
+  outputTerminalTabBtn: document.getElementById("outputTerminalTabBtn"),
+  gitTerminalTabBtn: document.getElementById("gitTerminalTabBtn"),
+  outputTerminalTools: document.getElementById("outputTerminalTools"),
+  gitTerminalTools: document.getElementById("gitTerminalTools"),
+  terminalMetrics: document.getElementById("terminalMetrics"),
   terminalState: document.getElementById("terminalState"),
   terminalOutput: document.getElementById("terminalOutput"),
   copyTerminalBtn: document.getElementById("copyTerminalBtn"),
+  gitTerminalTitle: document.getElementById("gitTerminalTitle"),
+  gitTerminalOutput: document.getElementById("gitTerminalOutput"),
+  gitTerminalFilterInput: document.getElementById("gitTerminalFilterInput"),
+  gitTerminalForm: document.getElementById("gitTerminalForm"),
+  gitCommandInput: document.getElementById("gitCommandInput"),
+  gitCommandSubmitBtn: document.getElementById("gitCommandSubmitBtn"),
+  copyGitTerminalBtn: document.getElementById("copyGitTerminalBtn"),
+  clearGitTerminalBtn: document.getElementById("clearGitTerminalBtn"),
+  openGitMacTerminalBtn: document.getElementById("openGitMacTerminalBtn"),
   uptimeLabel: document.getElementById("uptimeLabel"),
   portBadge: document.getElementById("portBadge"),
   envBadge: document.getElementById("envBadge"),
@@ -60,11 +84,20 @@ const els = {
   servicePathInput: document.getElementById("servicePathInput"),
   serviceCommandInput: document.getElementById("serviceCommandInput"),
   browseServicePathBtn: document.getElementById("browseServicePathBtn"),
+  gitSummary: document.getElementById("gitSummary"),
+  gitBranchLabel: document.getElementById("gitBranchLabel"),
+  gitSyncLabel: document.getElementById("gitSyncLabel"),
+  gitLastSyncLabel: document.getElementById("gitLastSyncLabel"),
+  gitActionsBtn: document.getElementById("gitActionsBtn"),
+  gitActionsMenu: document.getElementById("gitActionsMenu"),
   terminalContextMenu: document.getElementById("terminalContextMenu"),
   copySelectionMenuBtn: document.getElementById("copySelectionMenuBtn"),
   copyAllMenuBtn: document.getElementById("copyAllMenuBtn"),
   serviceContextMenu: document.getElementById("serviceContextMenu"),
   openServiceContextBtn: document.getElementById("openServiceContextBtn"),
+  refreshServiceContextBtn: document.getElementById("refreshServiceContextBtn"),
+  stopServiceContextBtn: document.getElementById("stopServiceContextBtn"),
+  editServiceContextBtn: document.getElementById("editServiceContextBtn"),
   deleteServiceContextBtn: document.getElementById("deleteServiceContextBtn"),
   helpBtn: document.getElementById("helpBtn"),
 };
@@ -99,6 +132,7 @@ function actionIcon(name) {
     play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
     stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>',
     terminal: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 10l3 2-3 2"/><path d="M13 15h4"/></svg>',
+    edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
   };
   return icons[name] || "";
 }
@@ -119,10 +153,12 @@ function selectService(name) {
   ensureTab(name);
   state.current = name;
   state.terminalFollow[name] = true;
+  state.gitTerminalFollow[name] = true;
   const service = serviceByName(name);
   els.commandInput.value = state.commands[name] || service.command || "pnpm start:dev";
   renderAll();
   fetchLogs(true);
+  fetchGitLogs(true);
 }
 
 function closeTab(name) {
@@ -141,7 +177,9 @@ function renderAll() {
   renderWorkspaceMode();
   renderCommandBar();
   renderEmptyState();
+  renderTerminalMode();
   renderTerminal();
+  renderGitTerminal();
 }
 
 function renderWorkspaceMode() {
@@ -172,8 +210,10 @@ function renderHeader() {
       : `Start Selected (${state.selected.size})`;
   setActionButton(els.emptyStartSelectedBtn, "play", emptyStartLabel);
   setActionButton(els.runBtn, "play", "Run");
+  setActionButton(els.refreshAppBtn, "terminal", "Refresh App");
   setActionButton(els.stopBtn, "stop", "Stop");
   els.startSelectedBtn.disabled = false;
+  if (els.refreshAppBtn) els.refreshAppBtn.disabled = !state.current;
   els.stopSelectedBtn.disabled = state.selected.size === 0;
   els.selectAllBtn.disabled = state.services.length === 0;
   els.selectAllBtn.textContent =
@@ -220,10 +260,28 @@ function renderServices() {
       name.className = "service-name";
       name.textContent = service.name;
 
+      const branch = document.createElement("span");
+      const branchText = service.git?.isRepo ? service.git.branch || "detached" : "no git";
+      branch.className = `service-branch ${service.git?.isRepo ? "" : "muted"} ${service.git?.dirty ? "dirty" : ""}`;
+      branch.textContent = branchText;
+      branch.title = service.git?.isRepo
+        ? `${service.name} branch: ${branchText}${service.git?.dirty ? ` · ${service.git.dirtyCount || 0} dirty` : ""}`
+        : `${service.name}: git repository not detected`;
+
       const dot = document.createElement("span");
       dot.className = `dot ${service.status}`;
 
-    row.append(checkbox, name, dot);
+      const menu = document.createElement("button");
+      menu.type = "button";
+      menu.className = "service-row-menu-btn";
+      menu.title = `${service.name} actions`;
+      menu.textContent = "...";
+      menu.addEventListener("click", (event) => {
+        event.stopPropagation();
+        showServiceContextMenu(event, service.name);
+      });
+
+    row.append(checkbox, name, branch, dot, menu);
     els.serviceList.append(row);
   });
 }
@@ -231,16 +289,25 @@ function renderServices() {
 function renderModalServices() {
   if (!els.modalServiceList) return;
   const isStartMode = state.modalMode === "start";
+  const isEditMode = state.modalMode === "edit";
+  const editingService = isEditMode ? serviceByName(state.editingService) : null;
   const isServiceRunning = (service) => service.status === "running";
   els.modalServiceList.replaceChildren();
+  els.modalServiceList.hidden = isEditMode;
 
   if (els.serviceModalTitle) {
-    els.serviceModalTitle.textContent = isStartMode ? "Start services" : "Servisler";
+    els.serviceModalTitle.textContent = isStartMode
+      ? "Start services"
+      : isEditMode
+        ? `${editingService?.name || "Servis"} düzenle`
+        : "Servisler";
   }
   if (els.serviceModalDescription) {
     els.serviceModalDescription.textContent = isStartMode
       ? "Başlatmak istediğin servisleri seç."
-      : "Yeni servis ekle veya mevcut servislerden bir terminal sekmesi aç.";
+      : isEditMode
+        ? "Servis adını, klasör yolunu ve varsayılan komutunu güncelle."
+        : "Yeni servis ekle veya mevcut servislerden bir terminal sekmesi aç.";
   }
   if (els.serviceForm) {
     els.serviceForm.hidden = isStartMode;
@@ -257,6 +324,8 @@ function renderModalServices() {
       els.serviceModalActionBtn.disabled = false;
     }
   }
+  const saveBtn = els.serviceForm?.querySelector('button[type="submit"]');
+  if (saveBtn) saveBtn.textContent = isEditMode ? "Update Service" : "Add Service";
 
   if (!state.services.length) {
     const empty = document.createElement("div");
@@ -324,6 +393,14 @@ function renderModalServices() {
       row.append(check, button, status);
     } else {
       button.addEventListener("click", onSelect);
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "edit-service";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openServiceModal("edit", service.name);
+      });
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "delete-service";
@@ -333,7 +410,7 @@ function renderModalServices() {
         if (!confirm(`${service.name} servisini kaldırmak istiyor musun?`)) return;
         await removeService(service.name);
       });
-      row.append(button, status, remove);
+      row.append(button, status, edit, remove);
     }
     els.modalServiceList.append(row);
   });
@@ -386,7 +463,7 @@ function renderTabs() {
   const add = document.createElement("button");
   add.className = "add-tab";
   add.textContent = "+";
-  add.addEventListener("click", openServiceModal);
+  add.addEventListener("click", () => openServiceModal("add"));
   els.tabBar.append(add);
 }
 
@@ -411,9 +488,11 @@ function renderCommandBar() {
   const service = serviceByName(state.current);
   if (!service) {
     els.commandInput.value = "";
+    if (els.gitCommandInput) els.gitCommandInput.disabled = true;
+    if (els.gitCommandSubmitBtn) els.gitCommandSubmitBtn.disabled = true;
+    renderGitSummary(null);
     return;
   }
-  els.terminalTitle.textContent = service.name.toUpperCase();
   els.portBadge.textContent = `PORT=${service.port || "auto"}`;
   els.envBadge.textContent = `ENV=${service.env || "DEV"}`;
   els.uptimeLabel.textContent = `UP: ${service.uptime || "--:--:--"}`;
@@ -421,6 +500,81 @@ function renderCommandBar() {
   els.memValue.textContent = service.metrics?.memory || "--";
   els.terminalState.textContent = service.status.toUpperCase();
   els.terminalState.className = `state-pill ${service.status}`;
+  if (els.gitCommandInput) {
+    els.gitCommandInput.disabled = state.gitTerminalBusy;
+    els.gitCommandInput.placeholder = service.git?.isRepo ? "git status" : "pwd";
+  }
+  if (els.gitCommandSubmitBtn) {
+    els.gitCommandSubmitBtn.disabled = state.gitTerminalBusy;
+    els.gitCommandSubmitBtn.textContent = state.gitTerminalBusy ? "Run..." : "Enter";
+  }
+  if (els.openGitMacTerminalBtn) {
+    els.openGitMacTerminalBtn.disabled = !state.current;
+  }
+  renderGitSummary(service);
+}
+
+function setTerminalMode(mode) {
+  state.terminalMode = mode === "git" ? "git" : "output";
+  renderTerminalMode();
+  if (state.terminalMode === "git") {
+    renderGitTerminal();
+    els.gitCommandInput?.focus();
+  } else {
+    renderTerminal();
+  }
+}
+
+function renderTerminalMode() {
+  const isGit = state.terminalMode === "git";
+  els.outputTerminalTabBtn?.classList.toggle("active", !isGit);
+  els.gitTerminalTabBtn?.classList.toggle("active", isGit);
+  els.outputTerminalTabBtn?.setAttribute("aria-selected", String(!isGit));
+  els.gitTerminalTabBtn?.setAttribute("aria-selected", String(isGit));
+  if (els.terminalOutput) els.terminalOutput.hidden = isGit;
+  if (els.gitTerminalOutput) els.gitTerminalOutput.hidden = !isGit;
+  if (els.outputTerminalTools) els.outputTerminalTools.hidden = isGit;
+  if (els.gitTerminalTools) els.gitTerminalTools.hidden = !isGit;
+  if (els.terminalMetrics) els.terminalMetrics.hidden = isGit;
+  if (els.gitTerminalForm) els.gitTerminalForm.hidden = !isGit;
+}
+
+function renderGitSummary(service) {
+  if (!els.gitSummary || !els.gitBranchLabel || !els.gitSyncLabel || !els.gitLastSyncLabel) return;
+  const git = service?.git;
+  if (!service || !git) {
+    els.gitSummary.hidden = true;
+    if (els.gitActionsBtn) els.gitActionsBtn.disabled = true;
+    return;
+  }
+  els.gitSummary.hidden = false;
+  els.gitBranchLabel.textContent = git.isRepo ? git.branch || "DETACHED" : "NO REPO";
+  els.gitSyncLabel.textContent = git.isRepo ? git.developmentLabel || "UNKNOWN" : "NO GIT";
+  els.gitSyncLabel.className = "git-sync";
+  const syncMeta = git.lastDevelopmentSync
+    ? `LAST ${git.lastDevelopmentSync}${git.lastDevelopmentSyncStatus ? ` · ${git.lastDevelopmentSyncStatus.toUpperCase()}` : ""}`
+    : git.isRepo
+      ? "NOT SYNCED FROM APP"
+      : "GIT NOT AVAILABLE";
+  els.gitLastSyncLabel.textContent = git.dirty && git.dirtyCount
+    ? `${syncMeta} · ${git.dirtyCount} dirty`
+    : syncMeta;
+  const mode = !git.isRepo
+    ? "missing"
+    : git.dirty
+      ? "dirty"
+      : git.developmentStatus || "clean";
+  els.gitSummary.className = `git-summary ${mode}`;
+  if (els.gitActionsBtn) {
+    els.gitActionsBtn.disabled = !state.current || state.gitBusy;
+    els.gitActionsBtn.textContent = state.gitBusy ? "Git Working..." : "Git Actions v";
+  }
+  if (els.gitActionsMenu) {
+    els.gitActionsMenu.querySelectorAll("button[data-git-action]").forEach((button) => {
+      const action = button.dataset.gitAction;
+      button.disabled = state.gitBusy || (!git.isRepo && action !== "refresh");
+    });
+  }
 }
 
 function renderTerminal() {
@@ -431,40 +585,69 @@ function renderTerminal() {
   }
   if (isTerminalSelectionLocked()) return;
   const previousTop = els.terminalOutput.scrollTop;
-  const shouldFollow = state.terminalFollow[serviceName] !== false || isTerminalNearBottom();
+  const shouldFollow = state.terminalFollow[serviceName] !== false || isOutputNearBottom(els.terminalOutput);
   const filter = state.terminalFilter.trim().toLowerCase();
   const lines = (state.logs[state.current] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
-  els.terminalOutput.replaceChildren();
-  lines.slice(-1200).forEach((entry) => {
-    const div = document.createElement("div");
-    div.className = `log-line ${entry.level || "plain"}`;
-    div.textContent = entry.line;
-    els.terminalOutput.append(div);
-  });
+  renderLogLines(els.terminalOutput, lines.slice(-1200));
   if (shouldFollow) {
-    scrollTerminalToBottom();
+    scrollOutputToBottom(els.terminalOutput);
   } else {
     els.terminalOutput.scrollTop = previousTop;
   }
 }
 
-function isTerminalNearBottom() {
-  const distance = els.terminalOutput.scrollHeight - els.terminalOutput.scrollTop - els.terminalOutput.clientHeight;
+function renderGitTerminal() {
+  if (!els.gitTerminalOutput) return;
+  const serviceName = state.current;
+  if (!serviceName) {
+    if (!isGitTerminalSelectionLocked()) els.gitTerminalOutput.replaceChildren();
+    return;
+  }
+  if (isGitTerminalSelectionLocked()) return;
+  const previousTop = els.gitTerminalOutput.scrollTop;
+  const shouldFollow = state.gitTerminalFollow[serviceName] !== false || isOutputNearBottom(els.gitTerminalOutput);
+  const filter = state.gitTerminalFilter.trim().toLowerCase();
+  const lines = (state.gitLogs[state.current] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
+  renderLogLines(els.gitTerminalOutput, lines.slice(-1200));
+  if (shouldFollow) {
+    scrollOutputToBottom(els.gitTerminalOutput);
+  } else {
+    els.gitTerminalOutput.scrollTop = previousTop;
+  }
+}
+
+function renderLogLines(output, lines) {
+  output.replaceChildren();
+  lines.forEach((entry) => {
+    const div = document.createElement("div");
+    div.className = `log-line ${entry.level || "plain"}`;
+    div.textContent = entry.line;
+    output.append(div);
+  });
+}
+
+function isOutputNearBottom(output) {
+  const distance = output.scrollHeight - output.scrollTop - output.clientHeight;
   return distance < 36;
 }
 
-function scrollTerminalToBottom() {
-  els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+function scrollOutputToBottom(output) {
+  output.scrollTop = output.scrollHeight;
 }
 
-function isTerminalSelectionActive() {
+function isTerminalSelectionActive(output = els.terminalOutput) {
+  if (!output) return false;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
-  return els.terminalOutput.contains(selection.anchorNode) || els.terminalOutput.contains(selection.focusNode);
+  return output.contains(selection.anchorNode) || output.contains(selection.focusNode);
 }
 
 function isTerminalSelectionLocked() {
-  return state.terminalSelecting || isTerminalSelectionActive();
+  return state.terminalSelecting || isTerminalSelectionActive(els.terminalOutput);
+}
+
+function isGitTerminalSelectionLocked() {
+  return state.gitTerminalSelecting || isTerminalSelectionActive(els.gitTerminalOutput);
 }
 
 async function refreshState() {
@@ -480,6 +663,8 @@ async function refreshState() {
     if (!state.commands[service.name]) state.commands[service.name] = service.command;
     if (!state.logs[service.name]) state.logs[service.name] = [];
     if (!state.offsets[service.name]) state.offsets[service.name] = 0;
+    if (!state.gitLogs[service.name]) state.gitLogs[service.name] = [];
+    if (!state.gitOffsets[service.name]) state.gitOffsets[service.name] = 0;
   });
   if (!state.initialized) {
     state.initialized = true;
@@ -505,6 +690,22 @@ async function fetchLogs(reset = false) {
   renderTerminal();
 }
 
+async function fetchGitLogs(reset = false) {
+  if (!state.current) return;
+  if (reset) {
+    state.gitLogs[state.current] = [];
+    state.gitOffsets[state.current] = 0;
+  }
+  const after = state.gitOffsets[state.current] || 0;
+  const data = await api(`/api/git/logs?service=${encodeURIComponent(state.current)}&after=${after}`);
+  if (data.entries?.length) {
+    state.gitLogs[state.current].push(...data.entries);
+    state.gitLogs[state.current] = state.gitLogs[state.current].slice(-1600);
+  }
+  state.gitOffsets[state.current] = data.next || after;
+  renderGitTerminal();
+}
+
 async function startCurrent() {
   if (!state.current) return;
   state.commands[state.current] = els.commandInput.value.trim();
@@ -517,6 +718,31 @@ async function startCurrent() {
 async function stopCurrent() {
   if (!state.current) return;
   await post("/api/stop", { service: state.current });
+  await refreshState();
+}
+
+async function refreshCurrent() {
+  if (!state.current) return;
+  state.commands[state.current] = els.commandInput.value.trim();
+  ensureTab(state.current);
+  const result = await post("/api/refresh", { service: state.current, command: state.commands[state.current] });
+  if (!result.ok) {
+    alert(result.message || "Service could not be refreshed.");
+  }
+  await refreshState();
+  await fetchLogs();
+}
+
+async function refreshService(name) {
+  if (!serviceByName(name)) return;
+  if (state.current === name) {
+    await refreshCurrent();
+    return;
+  }
+  const result = await post("/api/refresh", { service: name, command: state.commands[name] });
+  if (!result.ok) {
+    alert(result.message || "Service could not be refreshed.");
+  }
   await refreshState();
 }
 
@@ -566,22 +792,68 @@ async function stopSelected() {
   await refreshState();
 }
 
-async function addService(event) {
+async function saveService(event) {
   event.preventDefault();
   const payload = {
     name: els.serviceNameInput.value.trim(),
     path: els.servicePathInput.value.trim(),
     command: els.serviceCommandInput.value.trim() || "pnpm start:dev",
   };
-  const result = await post("/api/services/add", payload);
+  const editingName = state.editingService;
+  const result =
+    state.modalMode === "edit" && editingName
+      ? await post("/api/services/update", { ...payload, service: editingName })
+      : await post("/api/services/add", payload);
   if (!result.ok) {
-    alert(result.message || "Service could not be added.");
+    alert(result.message || "Service could not be saved.");
     return;
   }
-  els.serviceForm.reset();
-  els.serviceCommandInput.value = "pnpm start:dev";
+  if (state.modalMode === "edit" && result.service) {
+    replaceServiceReferences(editingName, result.service.name);
+    closeServiceModal();
+    ensureTab(result.service.name);
+    state.current = result.service.name;
+  } else {
+    els.serviceForm.reset();
+    els.serviceCommandInput.value = "pnpm start:dev";
+  }
   await refreshState();
   renderModalServices();
+}
+
+function replaceServiceReferences(previousName, nextName) {
+  if (!previousName || !nextName || previousName === nextName) return;
+  if (state.selected.delete(previousName)) state.selected.add(nextName);
+  state.tabs = state.tabs.map((tab) => (tab === previousName ? nextName : tab));
+  if (state.current === previousName) state.current = nextName;
+  if (state.commands[previousName]) {
+    state.commands[nextName] = state.commands[previousName];
+    delete state.commands[previousName];
+  }
+  if (state.logs[previousName]) {
+    state.logs[nextName] = state.logs[previousName];
+    delete state.logs[previousName];
+  }
+  if (state.offsets[previousName]) {
+    state.offsets[nextName] = state.offsets[previousName];
+    delete state.offsets[previousName];
+  }
+  if (state.gitLogs[previousName]) {
+    state.gitLogs[nextName] = state.gitLogs[previousName];
+    delete state.gitLogs[previousName];
+  }
+  if (state.gitOffsets[previousName]) {
+    state.gitOffsets[nextName] = state.gitOffsets[previousName];
+    delete state.gitOffsets[previousName];
+  }
+  if (state.terminalFollow[previousName] !== undefined) {
+    state.terminalFollow[nextName] = state.terminalFollow[previousName];
+    delete state.terminalFollow[previousName];
+  }
+  if (state.gitTerminalFollow[previousName] !== undefined) {
+    state.gitTerminalFollow[nextName] = state.gitTerminalFollow[previousName];
+    delete state.gitTerminalFollow[previousName];
+  }
 }
 
 async function removeService(name) {
@@ -593,6 +865,14 @@ async function removeService(name) {
   state.selected.delete(name);
   state.tabs = state.tabs.filter((tab) => tab !== name);
   if (state.current === name) state.current = state.tabs[0] || null;
+  if (state.editingService === name) closeServiceModal();
+  delete state.commands[name];
+  delete state.logs[name];
+  delete state.offsets[name];
+  delete state.gitLogs[name];
+  delete state.gitOffsets[name];
+  delete state.terminalFollow[name];
+  delete state.gitTerminalFollow[name];
   await refreshState();
   renderModalServices();
 }
@@ -631,6 +911,14 @@ async function clearCurrent() {
   renderTerminal();
 }
 
+async function clearGitCurrent() {
+  if (!state.current) return;
+  const data = await post("/api/git/clear", { service: state.current });
+  state.gitLogs[state.current] = [];
+  state.gitOffsets[state.current] = data.next || 0;
+  renderGitTerminal();
+}
+
 async function openTarget(target) {
   await post("/api/open", { target, service: state.current });
 }
@@ -639,13 +927,80 @@ async function openSystemTerminal() {
   await post("/api/open-terminal", { service: state.current });
 }
 
+async function openGitMacTerminal() {
+  if (!state.current) return;
+  await post("/api/open-terminal", { service: state.current });
+}
+
+function toggleGitActionsMenu() {
+  if (!els.gitActionsMenu || !state.current) return;
+  hideTerminalContextMenu();
+  hideServiceContextMenu();
+  els.gitActionsMenu.hidden = !els.gitActionsMenu.hidden;
+}
+
+function hideGitActionsMenu() {
+  if (els.gitActionsMenu) els.gitActionsMenu.hidden = true;
+}
+
+async function runGitAction(action) {
+  if (!state.current || !action) return;
+  hideGitActionsMenu();
+  state.gitBusy = true;
+  renderCommandBar();
+  try {
+    const result = await post("/api/git/action", { service: state.current, action });
+    if (!result.ok) {
+      alert(result.message || "Git action failed.");
+    }
+    await refreshState();
+    await fetchGitLogs();
+  } finally {
+    state.gitBusy = false;
+    renderCommandBar();
+  }
+}
+
+async function runGitTerminalCommand(event) {
+  event.preventDefault();
+  if (!state.current || !els.gitCommandInput || state.gitTerminalBusy) return;
+  const command = els.gitCommandInput.value.trim();
+  if (!command) return;
+  els.gitCommandInput.value = "";
+  state.gitTerminalBusy = true;
+  renderCommandBar();
+  try {
+    const result = await post("/api/git/terminal", { service: state.current, command });
+    if (!result.ok) {
+      console.warn(result.message || "Git terminal command failed.");
+    }
+    await refreshState();
+    await fetchGitLogs();
+  } finally {
+    state.gitTerminalBusy = false;
+    renderCommandBar();
+    els.gitCommandInput?.focus();
+  }
+}
+
 function visibleTerminalText() {
   return [...els.terminalOutput.querySelectorAll(".log-line")].map((line) => line.textContent).join("\n");
+}
+
+function visibleGitTerminalText() {
+  if (!els.gitTerminalOutput) return "";
+  return [...els.gitTerminalOutput.querySelectorAll(".log-line")].map((line) => line.textContent).join("\n");
 }
 
 async function copyTerminalText() {
   const selected = window.getSelection()?.toString() || "";
   const text = selected.trim() ? selected : visibleTerminalText();
+  await copyText(text);
+}
+
+async function copyGitTerminalText() {
+  const selected = window.getSelection()?.toString() || "";
+  const text = selected.trim() ? selected : visibleGitTerminalText();
   await copyText(text);
 }
 
@@ -670,6 +1025,7 @@ function showTerminalContextMenu(event) {
   if (!els.terminalContextMenu) return;
   event.preventDefault();
   hideServiceContextMenu();
+  hideGitActionsMenu();
   const selected = window.getSelection()?.toString().trim() || "";
   els.copySelectionMenuBtn.textContent = selected ? "Copy" : "Copy Visible";
   els.terminalContextMenu.hidden = false;
@@ -690,10 +1046,14 @@ function showServiceContextMenu(event, serviceName) {
 
   hideTerminalContextMenu();
   hideServiceContextMenu();
+  hideGitActionsMenu();
 
   state.contextService = service.name;
   els.openServiceContextBtn.textContent = "Open";
-  els.deleteServiceContextBtn.textContent = `Delete ${service.name}`;
+  if (els.refreshServiceContextBtn) els.refreshServiceContextBtn.textContent = "Refresh";
+  if (els.stopServiceContextBtn) els.stopServiceContextBtn.textContent = "Stop";
+  if (els.editServiceContextBtn) els.editServiceContextBtn.textContent = "Edit";
+  els.deleteServiceContextBtn.textContent = "Delete";
   els.serviceContextMenu.hidden = false;
 
   const rect = els.serviceContextMenu.getBoundingClientRect();
@@ -709,19 +1069,32 @@ function hideServiceContextMenu() {
   state.contextService = null;
 }
 
-function openServiceModal(mode = "add") {
+function openServiceModal(mode = "add", serviceName = null) {
   if (state.services.length === 0 && mode === "start") mode = "add";
   state.modalMode = mode;
+  state.editingService = mode === "edit" ? serviceName : null;
+  const editingService = state.editingService ? serviceByName(state.editingService) : null;
+  if (mode === "edit" && editingService) {
+    els.serviceNameInput.value = editingService.name;
+    els.servicePathInput.value = editingService.path || editingService.directory || "";
+    els.serviceCommandInput.value = editingService.command || "pnpm start:dev";
+  } else if (mode !== "start") {
+    els.serviceForm.reset();
+    els.serviceCommandInput.value = "pnpm start:dev";
+  }
   if (els.serviceForm) {
-    els.serviceForm.hidden = mode !== "start";
+    els.serviceForm.hidden = mode === "start";
   }
   if (els.serviceModalTitle) {
-    els.serviceModalTitle.textContent = mode === "start" ? "Servisleri başlat" : "Servisler";
+    els.serviceModalTitle.textContent =
+      mode === "start" ? "Servisleri başlat" : mode === "edit" ? `${editingService?.name || "Servis"} düzenle` : "Servisler";
   }
   if (els.serviceModalDescription) {
     els.serviceModalDescription.textContent =
       mode === "start"
         ? "Başlatmak istediğin servisleri işaretle."
+        : mode === "edit"
+          ? "Servis adını, klasör yolunu ve varsayılan komutunu güncelle."
         : "Yeni servis ekle veya mevcut servislerden bir terminal sekmesi aç.";
   }
   if (els.serviceModalActionBtn) {
@@ -734,7 +1107,12 @@ function openServiceModal(mode = "add") {
 
 function closeServiceModal() {
   state.modalMode = "add";
+  state.editingService = null;
   hideServiceContextMenu();
+  hideGitActionsMenu();
+  els.serviceForm.reset();
+  els.serviceCommandInput.value = "pnpm start:dev";
+  els.modalServiceList.hidden = false;
   if (els.serviceForm) {
     els.serviceForm.hidden = false;
   }
@@ -760,6 +1138,10 @@ function bindEvents() {
     state.terminalFilter = els.terminalFilterInput.value;
     renderTerminal();
   });
+  els.gitTerminalFilterInput?.addEventListener("input", () => {
+    state.gitTerminalFilter = els.gitTerminalFilterInput.value;
+    renderGitTerminal();
+  });
   els.commandInput.addEventListener("input", () => {
     if (state.current) state.commands[state.current] = els.commandInput.value;
   });
@@ -768,20 +1150,38 @@ function bindEvents() {
   });
   els.terminalOutput.addEventListener("scroll", () => {
     if (!state.current) return;
-    state.terminalFollow[state.current] = isTerminalNearBottom();
+    state.terminalFollow[state.current] = isOutputNearBottom(els.terminalOutput);
+  });
+  els.gitTerminalOutput?.addEventListener("scroll", () => {
+    if (!state.current) return;
+    state.gitTerminalFollow[state.current] = isOutputNearBottom(els.gitTerminalOutput);
   });
   els.terminalOutput.addEventListener("mousedown", () => {
     state.terminalSelecting = true;
     hideTerminalContextMenu();
   });
-  document.addEventListener("mouseup", () => {
-    if (!state.terminalSelecting) return;
-    setTimeout(() => {
-      state.terminalSelecting = false;
-      renderTerminal();
-    }, 250);
+  els.gitTerminalOutput?.addEventListener("mousedown", () => {
+    state.gitTerminalSelecting = true;
+    hideTerminalContextMenu();
   });
+  document.addEventListener("mouseup", () => {
+    if (state.terminalSelecting) {
+      setTimeout(() => {
+        state.terminalSelecting = false;
+        renderTerminal();
+      }, 250);
+    }
+    if (state.gitTerminalSelecting) {
+      setTimeout(() => {
+        state.gitTerminalSelecting = false;
+        renderGitTerminal();
+      }, 250);
+    }
+  });
+  els.outputTerminalTabBtn?.addEventListener("click", () => setTerminalMode("output"));
+  els.gitTerminalTabBtn?.addEventListener("click", () => setTerminalMode("git"));
   els.terminalOutput.addEventListener("contextmenu", showTerminalContextMenu);
+  els.gitTerminalOutput?.addEventListener("contextmenu", showTerminalContextMenu);
   els.terminalOutput.addEventListener(
     "wheel",
     () => {
@@ -790,10 +1190,18 @@ function bindEvents() {
     },
     { passive: true },
   );
+  els.gitTerminalOutput?.addEventListener(
+    "wheel",
+    () => {
+      if (!state.current) return;
+      state.gitTerminalFollow[state.current] = false;
+    },
+    { passive: true },
+  );
   els.startSelectedBtn.addEventListener("click", startSelected);
   els.stopSelectedBtn.addEventListener("click", stopSelected);
-  els.addServiceBtn.addEventListener("click", openServiceModal);
-  els.serviceForm.addEventListener("submit", addService);
+  els.addServiceBtn.addEventListener("click", () => openServiceModal("add"));
+  els.serviceForm.addEventListener("submit", saveService);
   els.browseServicePathBtn.addEventListener("click", chooseServiceFolder);
   els.selectAllBtn.addEventListener("click", toggleSelectAll);
   els.stopAllBtn.addEventListener("click", async () => {
@@ -804,6 +1212,15 @@ function bindEvents() {
   els.runBtn.addEventListener("click", startCurrent);
   els.stopBtn.addEventListener("click", stopCurrent);
   els.copyTerminalBtn.addEventListener("click", copyTerminalText);
+  els.copyGitTerminalBtn?.addEventListener("click", copyGitTerminalText);
+  els.clearGitTerminalBtn?.addEventListener("click", clearGitCurrent);
+  els.openGitMacTerminalBtn?.addEventListener("click", openGitMacTerminal);
+  els.gitTerminalForm?.addEventListener("submit", runGitTerminalCommand);
+  els.gitCommandInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    runGitTerminalCommand(event);
+  });
   els.copySelectionMenuBtn?.addEventListener("click", async () => {
     hideTerminalContextMenu();
     const selected = window.getSelection()?.toString() || "";
@@ -821,6 +1238,31 @@ function bindEvents() {
       selectService(serviceName);
     });
   }
+  if (els.refreshServiceContextBtn) {
+    els.refreshServiceContextBtn.addEventListener("click", async () => {
+      const serviceName = state.contextService;
+      hideServiceContextMenu();
+      if (!serviceName) return;
+      await refreshService(serviceName);
+    });
+  }
+  if (els.stopServiceContextBtn) {
+    els.stopServiceContextBtn.addEventListener("click", async () => {
+      const serviceName = state.contextService;
+      hideServiceContextMenu();
+      if (!serviceName) return;
+      await post("/api/stop", { service: serviceName });
+      await refreshState();
+    });
+  }
+  if (els.editServiceContextBtn) {
+    els.editServiceContextBtn.addEventListener("click", () => {
+      const serviceName = state.contextService;
+      hideServiceContextMenu();
+      if (!serviceName) return;
+      openServiceModal("edit", serviceName);
+    });
+  }
   if (els.deleteServiceContextBtn) {
     els.deleteServiceContextBtn.addEventListener("click", async () => {
       const serviceName = state.contextService;
@@ -831,7 +1273,17 @@ function bindEvents() {
     });
   }
   els.clearBtn.addEventListener("click", clearCurrent);
+  els.refreshAppBtn?.addEventListener("click", refreshCurrent);
   els.terminalBtn.addEventListener("click", openSystemTerminal);
+  els.gitActionsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleGitActionsMenu();
+  });
+  els.gitActionsMenu?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-git-action]");
+    if (!button) return;
+    runGitAction(button.dataset.gitAction);
+  });
   els.emptyStartSelectedBtn.addEventListener("click", startSelected);
   if (els.serviceModalActionBtn) {
     els.serviceModalActionBtn.addEventListener("click", startSelectedFromModal);
@@ -856,6 +1308,7 @@ function bindEvents() {
     if (event.key === "Escape") {
       hideTerminalContextMenu();
       hideServiceContextMenu();
+      hideGitActionsMenu();
       if (!els.serviceModal.hidden) {
         closeServiceModal();
         return;
@@ -883,6 +1336,14 @@ function bindEvents() {
     if (els.serviceContextMenu && !els.serviceContextMenu.hidden && !els.serviceContextMenu.contains(event.target)) {
       hideServiceContextMenu();
     }
+    if (
+      els.gitActionsMenu &&
+      !els.gitActionsMenu.hidden &&
+      !els.gitActionsMenu.contains(event.target) &&
+      !els.gitActionsBtn.contains(event.target)
+    ) {
+      hideGitActionsMenu();
+    }
   });
 }
 
@@ -890,3 +1351,4 @@ bindEvents();
 refreshState();
 setInterval(() => refreshState().catch(console.error), 1000);
 setInterval(() => fetchLogs().catch(console.error), 450);
+setInterval(() => fetchGitLogs().catch(console.error), 650);

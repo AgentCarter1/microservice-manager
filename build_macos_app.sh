@@ -5,6 +5,10 @@ cd "$(dirname "$0")"
 
 APP_NAME="Miroservice Manager"
 DEFAULT_ICON_PATH="static/assets/app_icon.icns"
+APP_BUNDLE_PATH="dist/$APP_NAME.app"
+DMG_STAGING_DIR="dist/dmg-root"
+DMG_PATH="dist/$APP_NAME.dmg"
+ROOT_DMG_PATH="$APP_NAME.dmg"
 
 choose_python() {
   local candidates=()
@@ -68,4 +72,41 @@ PYI_ARGS+=(main.py)
 
 .venv/bin/pyinstaller "${PYI_ARGS[@]}"
 
-echo "Built: dist/$APP_NAME.app"
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "$APP_BUNDLE_PATH" || true
+fi
+
+if command -v codesign >/dev/null 2>&1; then
+  CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+  if codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE_PATH"; then
+    echo "Signed: $APP_BUNDLE_PATH"
+  else
+    echo "Warning: code signing failed; continuing with an unsigned app."
+  fi
+fi
+
+if ! command -v hdiutil >/dev/null 2>&1; then
+  echo "Built: $APP_BUNDLE_PATH"
+  echo "hdiutil was not found, so a DMG could not be created on this machine."
+  exit 0
+fi
+
+rm -rf "$DMG_STAGING_DIR"
+mkdir -p "$DMG_STAGING_DIR"
+cp -R "$APP_BUNDLE_PATH" "$DMG_STAGING_DIR/$APP_NAME.app"
+ln -s /Applications "$DMG_STAGING_DIR/Applications"
+
+hdiutil create \
+  -volname "$APP_NAME" \
+  -srcfolder "$DMG_STAGING_DIR" \
+  -ov \
+  -format UDZO \
+  "$DMG_PATH"
+
+cp "$DMG_PATH" "$ROOT_DMG_PATH"
+rm -rf "$DMG_STAGING_DIR"
+
+echo "Built: $APP_BUNDLE_PATH"
+echo "Built: $DMG_PATH"
+echo "Copied: $ROOT_DMG_PATH"
+echo "Note: for warning-free public distribution, sign with an Apple Developer ID and notarize the DMG."

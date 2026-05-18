@@ -20,10 +20,12 @@ cd microservice-manager
 ./build_macos_app.sh
 ```
 
-The generated app will be available at:
+The generated app and installer disk image will be available at:
 
 ```text
 dist/Miroservice Manager.app
+dist/Miroservice Manager.dmg
+Miroservice Manager.dmg
 ```
 
 Users do not need this source folder to run the built app. Their service configuration is stored outside the app bundle at:
@@ -31,6 +33,8 @@ Users do not need this source folder to run the built app. Their service configu
 ```text
 ~/Library/Application Support/Miroservice Manager/services.json
 ```
+
+The DMG contains the app bundle and an Applications shortcut, so users can drag the app into Applications and launch it from there. If the app is shared outside your own Mac, macOS may still show a Gatekeeper warning unless the app is signed with an Apple Developer ID and notarized.
 
 ## Run in Browser Mode
 
