@@ -1,0 +1,961 @@
+:root {
+  --bg: #07101f;
+  --panel: #111a2d;
+  --panel-2: #162238;
+  --panel-3: #202c45;
+  --terminal: #050d1c;
+  --border: #344158;
+  --border-soft: #27344c;
+  --text: #d8e0f0;
+  --muted: #8b98ad;
+  --dim: #5f6f88;
+  --accent: #8bd8ff;
+  --green: #4ee6a7;
+  --green-dark: #0f3c35;
+  --yellow: #f3bd63;
+  --red: #ff8d7d;
+  --blue: #7dc8ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+body {
+  display: grid;
+  grid-template-rows: 74px minmax(0, 1fr) 34px;
+  color: var(--text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.topbar {
+  height: 74px;
+  display: grid;
+  grid-template-columns: 300px minmax(260px, 1fr) auto auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 0 22px 0 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: #0b1425;
+}
+
+.brand {
+  width: 300px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.brand-logo {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.search-wrap {
+  height: 46px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  min-width: 200px;
+}
+
+.search-wrap span,
+.search-wrap kbd {
+  padding: 0 14px;
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.search-wrap kbd {
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.search-wrap input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.primary,
+.ghost,
+.icon-button,
+.wide-button,
+.mini-button,
+.run,
+.soft,
+.head-button {
+  height: 40px;
+  padding: 0 14px;
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.primary,
+.ghost,
+.icon-button,
+.run,
+.soft,
+.head-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.button-icon {
+  width: 15px;
+  height: 15px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.button-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#startSelectedBtn,
+#stopSelectedBtn {
+  min-width: 136px;
+}
+
+#stopAllBtn {
+  min-width: 90px;
+}
+
+.icon-button {
+  min-width: 96px;
+}
+
+.primary,
+.run {
+  background: var(--accent);
+  color: var(--terminal);
+}
+
+.run {
+  background: var(--green);
+}
+
+.ghost,
+.icon-button,
+.soft,
+.head-button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.shell {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.profile {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 20px 18px 10px;
+}
+
+.avatar {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.avatar img {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.profile-name {
+  font: 700 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.profile-status {
+  margin-top: 3px;
+  color: var(--text);
+}
+
+.wide-button {
+  margin: 10px 18px 18px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.section-tools {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 18px 10px;
+}
+
+.section-title {
+  color: var(--muted);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.mini-button {
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.service-list {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.empty-list {
+  padding: 18px;
+  color: var(--muted);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+  line-height: 1.45;
+}
+
+.service-row {
+  height: 40px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 20px auto;
+  gap: 6px;
+  align-items: center;
+  padding: 0 18px;
+  color: var(--text);
+}
+
+.service-row-delete {
+  height: 24px;
+  min-width: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  color: var(--red);
+  background: transparent;
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.service-row.active {
+  background: var(--green-dark);
+  color: var(--green);
+}
+
+.service-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+}
+
+.service-icon {
+  color: var(--muted);
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.service-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.service-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--dim);
+}
+
+.dot.running {
+  background: var(--green);
+}
+
+.dot.error {
+  background: var(--red);
+}
+
+.dot.missing {
+  background: var(--yellow);
+}
+
+.workspace {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 46px auto minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 152px;
+  min-width: 0;
+  height: 46px;
+  display: grid;
+  grid-template-columns: 1fr 32px;
+  align-items: center;
+  border-right: 1px solid var(--border-soft);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.tab.active {
+  border-top: 2px solid var(--accent);
+  background: var(--panel-2);
+  color: var(--accent);
+}
+
+.tab button {
+  min-width: 0;
+  height: 100%;
+  display: block;
+  align-items: center;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0 12px;
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden;
+}
+
+.tab-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-name {
+  min-width: 0;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tab .close {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.add-tab {
+  width: 48px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.command-bar {
+  margin: 10px 18px 8px;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto auto auto auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border-soft);
+  background: var(--terminal);
+  padding: 10px 10px 10px 14px;
+}
+
+.prompt {
+  color: var(--green);
+  font: 800 18px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.command-bar input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 500 15px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.meta-badge,
+.state-pill {
+  padding: 6px 10px;
+  background: var(--panel-3);
+  color: var(--text);
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-card {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  margin: 8px 18px 10px;
+  border: 1px solid var(--border);
+  background: var(--terminal);
+}
+
+.terminal-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-spacer {
+  flex: 1;
+}
+
+.terminal-filter {
+  width: min(260px, 28vw);
+  height: 32px;
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr);
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--terminal);
+}
+
+.terminal-filter span {
+  padding: 0 10px;
+  color: var(--accent);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-filter input {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.state-pill.running {
+  background: var(--green-dark);
+  color: var(--green);
+}
+
+.state-pill.error {
+  background: #3f2428;
+  color: var(--red);
+}
+
+.state-pill.missing {
+  background: #3f3422;
+  color: var(--yellow);
+}
+
+.terminal-output {
+  min-height: 0;
+  max-height: 100%;
+  margin: 0;
+  padding: 18px 22px 100px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  font: 13px/1.65 "SF Mono", Menlo, Consolas, monospace;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.terminal-output::selection,
+.log-line::selection {
+  background: rgba(139, 216, 255, 0.32);
+  color: #ffffff;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
+}
+
+.context-menu button {
+  width: 100%;
+  height: 32px;
+  display: block;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.context-menu button:hover {
+  background: var(--panel-3);
+  color: var(--accent);
+}
+
+.terminal-output::-webkit-scrollbar,
+.service-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.terminal-output::-webkit-scrollbar-thumb,
+.service-list::-webkit-scrollbar-thumb {
+  background: #53627a;
+}
+
+.terminal-output::-webkit-scrollbar-track,
+.service-list::-webkit-scrollbar-track {
+  background: #0a1324;
+}
+
+.log-line.info {
+  color: var(--blue);
+}
+
+.log-line.warn {
+  color: var(--yellow);
+}
+
+.log-line.error {
+  color: var(--red);
+}
+
+.log-line.success,
+.log-line.command {
+  color: var(--green);
+}
+
+.log-line.debug {
+  color: #20c997;
+}
+
+.log-line.system {
+  color: var(--muted);
+}
+
+.metrics {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.metrics div {
+  min-width: 116px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.metrics div + div {
+  border-left: 1px solid var(--border);
+}
+
+.metrics span {
+  color: var(--text);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.metrics strong {
+  color: var(--accent);
+  font: 800 13px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.statusbar {
+  height: 34px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px 0 330px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.resource-total {
+  color: var(--green);
+}
+
+.statusbar span:last-child {
+  justify-self: end;
+}
+
+.empty-state {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 48px 24px;
+  color: var(--text);
+  text-align: center;
+}
+
+.empty-state[hidden] {
+  display: none;
+}
+
+.empty-icon {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.empty-icon svg {
+  width: 42px;
+  height: 42px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.empty-state h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.empty-state p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 13, 28, 0.72);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.service-modal {
+  width: min(720px, calc(100vw - 40px));
+  max-height: min(680px, calc(100vh - 60px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.42);
+}
+
+.service-modal header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.service-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.service-modal h2,
+.service-modal p {
+  margin: 0;
+}
+
+.service-modal h2 {
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.service-modal p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.service-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--terminal);
+}
+
+.form-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.form-field span {
+  color: var(--accent);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.form-field input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--border);
+  outline: 0;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.service-path-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.service-path-field span {
+  grid-column: 1 / -1;
+}
+
+.service-path-field input {
+  grid-column: 1;
+}
+
+.service-path-field button {
+  grid-column: 2;
+  align-self: end;
+}
+
+.modal-service-list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.modal-service {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--terminal);
+  color: var(--text);
+}
+
+.modal-service-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+}
+
+.modal-service-start {
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+}
+
+.modal-service-disabled {
+  opacity: 0.75;
+}
+
+.modal-service-disabled .modal-service-main,
+.modal-service-disabled .dot {
+  cursor: not-allowed;
+}
+
+.modal-service input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+.modal-service:hover {
+  border-color: var(--accent);
+}
+
+.modal-service-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+  min-width: 0;
+}
+
+.modal-service-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.service-context-danger {
+  color: var(--red) !important;
+}
+
+.service-context-danger:hover {
+  color: #ffb4b4 !important;
+}
+
+.delete-service {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--red);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.modal-empty {
+  color: var(--muted);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (max-width: 980px) {
+  body {
+    grid-template-rows: auto minmax(0, 1fr) 34px;
+  }
+
+  .topbar {
+    grid-template-columns: 92px minmax(0, 1fr);
+    height: auto;
+    padding: 14px;
+  }
+
+  .brand {
+    width: 100%;
+    min-height: 54px;
+    border-right: 0;
+  }
+
+  .search-wrap,
+  .primary,
+  .ghost,
+  .icon-button {
+    grid-column: span 2;
+    width: 100%;
+  }
+
+  .shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .statusbar {
+    padding-left: 250px;
+  }
+}

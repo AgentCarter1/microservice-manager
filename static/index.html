@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Miroservice Manager</title>
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=20260517-7" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand" aria-label="Miroservice Manager">
+        <img class="brand-logo" src="/assets/logo.svg" alt="" />
+      </div>
+      <label class="search-wrap">
+        <span>FIND</span>
+        <input id="searchInput" type="search" placeholder="Filter services..." autocomplete="off" />
+        <kbd>CMD + K</kbd>
+      </label>
+      <button id="startSelectedBtn" class="primary">Start Selected (0)</button>
+      <button id="stopSelectedBtn" class="ghost">Stop Selected (0)</button>
+      <button id="stopAllBtn" class="ghost">Stop All</button>
+      <button id="terminalBtn" class="icon-button">Terminal</button>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="section-tools">
+          <div class="section-title">SERVICES</div>
+          <button id="addServiceBtn" class="mini-button">Add</button>
+          <button id="selectAllBtn" class="mini-button">Select All</button>
+        </div>
+        <div id="serviceList" class="service-list"></div>
+      </aside>
+
+      <main class="workspace">
+        <nav id="tabBar" class="tabs"></nav>
+
+        <section id="emptyState" class="empty-state" hidden>
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 5h16v10H4z" />
+              <path d="M8 19h8" />
+              <path d="M10 15v4" />
+              <path d="M14 15v4" />
+              <path d="M8 9l2 2-2 2" />
+              <path d="M13 13h3" />
+            </svg>
+          </div>
+          <h1 id="emptyTitle">Başlamak için bir servis ekle</h1>
+          <p id="emptyDescription">Servis adını ve proje klasörünü seç; konfigürasyon bu bilgisayarda kalıcı olarak saklanır.</p>
+          <button id="emptyStartSelectedBtn" class="primary">Start Selected</button>
+        </section>
+
+        <section id="commandBar" class="command-bar">
+          <span class="prompt">$</span>
+          <input id="commandInput" spellcheck="false" />
+          <span id="portBadge" class="meta-badge">PORT=auto</span>
+          <span id="envBadge" class="meta-badge">ENV=DEV</span>
+          <button id="runBtn" class="run">Run</button>
+          <button id="stopBtn" class="soft">Stop</button>
+        </section>
+
+        <section id="terminalCard" class="terminal-card">
+          <div class="terminal-head">
+            <span>TERMINAL:</span>
+            <strong id="terminalTitle">AUTH</strong>
+            <div class="terminal-spacer"></div>
+            <label class="terminal-filter">
+              <span>FILTER</span>
+              <input id="terminalFilterInput" type="search" placeholder="Search logs..." autocomplete="off" />
+            </label>
+            <span id="terminalState" class="state-pill idle">IDLE</span>
+            <span id="uptimeLabel">UP: --:--:--</span>
+            <button id="copyTerminalBtn" class="head-button">Copy</button>
+            <button id="clearBtn" class="head-button">Clear</button>
+          </div>
+          <pre id="terminalOutput" class="terminal-output" tabindex="0"></pre>
+          <div class="metrics">
+            <div>
+              <span>CPU</span>
+              <strong id="cpuValue">--</strong>
+            </div>
+            <div>
+              <span>MEMORY</span>
+              <strong id="memValue">--</strong>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="statusbar">
+      <span id="totalMetrics" class="resource-total">TOTAL CPU -- · RAM --</span>
+      <span id="runtimeLabel"></span>
+    </footer>
+
+    <div id="serviceModal" class="modal-backdrop" hidden>
+      <section class="service-modal" role="dialog" aria-modal="true" aria-labelledby="serviceModalTitle">
+        <header>
+          <div>
+            <h2 id="serviceModalTitle">Servisler</h2>
+            <p id="serviceModalDescription">Yeni servis ekle veya mevcut servislerden bir terminal sekmesi aç.</p>
+          </div>
+          <div class="service-modal-actions">
+            <button id="serviceModalActionBtn" class="head-button" hidden>Start Selected</button>
+            <button id="closeServiceModalBtn" class="head-button">Close</button>
+          </div>
+        </header>
+        <form id="serviceForm" class="service-form">
+          <label class="form-field">
+            <span>Name</span>
+            <input id="serviceNameInput" required autocomplete="off" placeholder="auth" />
+          </label>
+          <label class="form-field service-path-field">
+            <span>Path</span>
+            <input id="servicePathInput" required autocomplete="off" placeholder="/Users/.../my-service" />
+            <button id="browseServicePathBtn" type="button" class="head-button">Browse</button>
+          </label>
+          <label class="form-field">
+            <span>Command</span>
+            <input id="serviceCommandInput" autocomplete="off" value="pnpm start:dev" />
+          </label>
+          <button id="saveServiceBtn" type="submit" class="primary">Add Service</button>
+        </form>
+        <div id="modalServiceList" class="modal-service-list"></div>
+      </section>
+    </div>
+
+    <div id="terminalContextMenu" class="context-menu" hidden>
+      <button id="copySelectionMenuBtn">Copy</button>
+      <button id="copyAllMenuBtn">Copy All</button>
+    </div>
+
+    <div id="serviceContextMenu" class="context-menu" hidden>
+      <button id="openServiceContextBtn">Open</button>
+      <button id="deleteServiceContextBtn" class="service-context-danger">Delete</button>
+    </div>
+
+    <script src="/app.js?v=20260517-7"></script>
+  </body>
+</html>

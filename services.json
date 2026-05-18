@@ -1,0 +1,5 @@
+{
+  "root": "",
+  "default_command": "pnpm start:dev",
+  "services": []
+}
