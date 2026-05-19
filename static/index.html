@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Miroservice Manager</title>
     <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260518-3" />
+    <link rel="stylesheet" href="/styles.css?v=20260519-1" />
   </head>
   <body>
     <header class="topbar">
@@ -29,6 +29,16 @@
           <div class="section-title">SERVICES</div>
           <button id="addServiceBtn" class="mini-button">Add</button>
           <button id="selectAllBtn" class="mini-button">Select All</button>
+        </div>
+        <div class="service-bulk-actions">
+          <div class="service-git-actions-wrap">
+            <button id="selectedGitActionsBtn" class="mini-button service-git-actions-btn" type="button">Git Actions v</button>
+            <div id="selectedGitActionsMenu" class="git-actions-menu selected-git-actions-menu" hidden>
+              <button data-selected-git-action="switch-development" type="button">Switch Development</button>
+              <button data-selected-git-action="pull-development" type="button">Pull Development</button>
+              <button data-selected-git-action="sync-current-branch" type="button">Sync Current Branch</button>
+            </div>
+          </div>
         </div>
         <div id="serviceList" class="service-list"></div>
       </aside>
@@ -94,6 +104,7 @@
                 <input id="terminalFilterInput" type="search" placeholder="Search logs..." autocomplete="off" />
               </label>
               <span id="terminalState" class="state-pill idle">IDLE</span>
+              <span id="healthLabel" class="health-label">Service is not running yet.</span>
               <span id="uptimeLabel">UP: --:--:--</span>
               <button id="copyTerminalBtn" class="head-button">Copy</button>
               <button id="clearBtn" class="head-button">Clear</button>
@@ -179,6 +190,6 @@
       <button id="deleteServiceContextBtn" class="service-context-danger">Delete</button>
     </div>
 
-    <script src="/app.js?v=20260518-3"></script>
+    <script src="/app.js?v=20260519-3"></script>
   </body>
 </html>

@@ -87,6 +87,8 @@ class ServiceManager:
         self.started_at: Dict[str, float] = {}
         self.last_runtime_seconds: Dict[str, Optional[int]] = {service.name: None for service in self.services}
         self.last_exit_codes: Dict[str, Optional[int]] = {service.name: None for service in self.services}
+        self.last_exit_reasons: Dict[str, str] = {service.name: "" for service in self.services}
+        self.health_states: Dict[str, str] = {service.name: "idle" for service in self.services}
         self.expected_stops: Dict[str, str] = {}
         self.commands: Dict[str, str] = {service.name: service.command or self.default_command for service in self.services}
         self.logs: Dict[str, List[Dict[str, Any]]] = {service.name: [] for service in self.services}
@@ -116,6 +118,9 @@ class ServiceManager:
 
     def service_state(self, name: str) -> Dict[str, Any]:
         service = self.service_by_name[name]
+        port = service.port or self.discover_port(service)
+        health = self.health_state(name, service, port)
+        self.track_health_transition(name, health)
         return {
             "name": service.name,
             "directory": service.directory,
@@ -123,10 +128,12 @@ class ServiceManager:
             "status": self.status(name),
             "uptime": self.format_uptime(name),
             "exitCode": self.last_exit_codes.get(name),
+            "exitReason": self.last_exit_reasons.get(name, ""),
             "env": service.env,
-            "port": service.port or self.discover_port(service),
+            "port": port,
             "path": str(self.service_path(service)),
             "metrics": self.metrics(name),
+            "health": health,
             "git": self.git_state(service),
         }
 
@@ -186,6 +193,8 @@ class ServiceManager:
             self.git_log_sequence[name] = 0
             self.last_runtime_seconds[name] = None
             self.last_exit_codes[name] = None
+            self.last_exit_reasons[name] = ""
+            self.health_states[name] = "idle"
             self.save_config()
             self.append_log(name, f"Service added: {directory}", "system")
             self.append_git_log(name, f"Git terminal ready in {directory}", "system")
@@ -232,6 +241,8 @@ class ServiceManager:
                     self.started_at[name] = started
                 self.last_runtime_seconds[name] = self.last_runtime_seconds.pop(current_name, None)
                 self.last_exit_codes[name] = self.last_exit_codes.pop(current_name, None)
+                self.last_exit_reasons[name] = self.last_exit_reasons.pop(current_name, "")
+                self.health_states[name] = self.health_states.pop(current_name, "idle")
                 expected_stop = self.expected_stops.pop(current_name, None)
                 if expected_stop:
                     self.expected_stops[name] = expected_stop
@@ -266,6 +277,8 @@ class ServiceManager:
             self.started_at.pop(name, None)
             self.last_runtime_seconds.pop(name, None)
             self.last_exit_codes.pop(name, None)
+            self.last_exit_reasons.pop(name, None)
+            self.health_states.pop(name, None)
             self.expected_stops.pop(name, None)
             self.processes.pop(name, None)
             self.save_config()
@@ -299,7 +312,7 @@ class ServiceManager:
         except Exception as exc:
             return {"ok": False, "message": str(exc)}
 
-    def start(self, name: str, command: Optional[str] = None) -> Dict[str, Any]:
+    def start(self, name: str, command: Optional[str] = None, clear_logs: bool = True) -> Dict[str, Any]:
         with self.lock:
             self.require_service(name)
             service = self.service_by_name[name]
@@ -311,6 +324,8 @@ class ServiceManager:
                 return {"ok": True, "message": f"{name} is already running."}
 
             cwd = self.service_path(service)
+            if clear_logs:
+                self.logs[name] = []
             if not cwd.exists():
                 self.last_exit_codes[name] = 127
                 self.append_log(name, f"Directory not found: {cwd}", "error")
@@ -321,13 +336,20 @@ class ServiceManager:
                 service.command = command
                 self.save_config()
             self.last_exit_codes[name] = None
+            self.last_exit_reasons[name] = ""
             self.last_runtime_seconds[name] = None
+            self.health_states[name] = "starting"
 
         env = self.command_env({"FORCE_COLOR": "1", "PYTHONUNBUFFERED": "1"})
         args = self.shell_args(command)
 
         self.append_log(name, f"$ {command}", "command")
         self.append_log(name, f"cwd: {cwd}", "system")
+        start_port = service.port or self.discover_port(service)
+        if start_port:
+            self.append_log(name, f"Health: starting; waiting for port {start_port}.", "system")
+        else:
+            self.append_log(name, "Health: starting; no port configured, process liveness will be used.", "system")
 
         try:
             process = subprocess.Popen(
@@ -430,6 +452,7 @@ class ServiceManager:
             service = self.service_by_name[name]
             command = (command or self.commands.get(name) or service.command or self.default_command).strip()
             was_running = self.is_running(name)
+            self.logs[name] = []
 
         self.append_log(name, "Refreshing app...", "system")
         if was_running:
@@ -446,7 +469,7 @@ class ServiceManager:
         else:
             self.append_log(name, f"{name} is not running; starting it.", "system")
 
-        start_result = self.start(name, command)
+        start_result = self.start(name, command, clear_logs=False)
         return {
             "ok": bool(start_result.get("ok")),
             "message": f"{name} refreshed." if start_result.get("ok") else start_result.get("message", "Refresh failed."),
@@ -490,6 +513,7 @@ class ServiceManager:
                 if self.processes.get(name) is process:
                     self.processes.pop(name, None)
                     self.last_exit_codes[name] = 0 if expected_stop else code
+                    self.last_exit_reasons[name] = expected_stop or ("exited" if code == 0 else "crashed")
             if expected_stop:
                 self.append_log(name, f"Process {expected_stop} with code {code}.", "system")
             else:
@@ -576,6 +600,122 @@ class ServiceManager:
         if self.last_exit_codes.get(name) not in (None, 0):
             return "error"
         return "idle"
+
+    def health_state(self, name: str, service: ServiceConfig, port: str) -> Dict[str, Any]:
+        if not self.service_path(service).exists():
+            return {
+                "state": "missing",
+                "label": "MISSING",
+                "message": "Service folder was not found.",
+                "port": port,
+                "portOpen": False,
+            }
+
+        if self.is_running(name):
+            runtime = int(time.time() - self.started_at.get(name, time.time()))
+            port_number = self.parse_port(port)
+            if port_number:
+                port_open = self.is_port_open(port_number)
+                if port_open:
+                    return {
+                        "state": "ready",
+                        "label": "READY",
+                        "message": f"Process is running and port {port_number} is listening.",
+                        "port": str(port_number),
+                        "portOpen": True,
+                    }
+                if runtime < 12:
+                    return {
+                        "state": "starting",
+                        "label": "STARTING",
+                        "message": f"Process is running; waiting for port {port_number}.",
+                        "port": str(port_number),
+                        "portOpen": False,
+                    }
+                return {
+                    "state": "unhealthy",
+                    "label": "NO PORT",
+                    "message": f"Process is running but port {port_number} is not reachable.",
+                    "port": str(port_number),
+                    "portOpen": False,
+                }
+
+            return {
+                "state": "running",
+                "label": "RUNNING",
+                "message": "Process is running. No port is configured for readiness checks.",
+                "port": "",
+                "portOpen": None,
+            }
+
+        exit_code = self.last_exit_codes.get(name)
+        exit_reason = self.last_exit_reasons.get(name, "")
+        if exit_code is None:
+            return {
+                "state": "idle",
+                "label": "IDLE",
+                "message": "Service is not running yet.",
+                "port": port,
+                "portOpen": False,
+            }
+        if exit_code == 0:
+            if exit_reason in {"stopped", "interrupted"}:
+                return {
+                    "state": "stopped",
+                    "label": "STOPPED",
+                    "message": f"Process was {exit_reason}.",
+                    "port": port,
+                    "portOpen": False,
+                }
+            return {
+                "state": "exited",
+                "label": "EXITED",
+                "message": "Process exited successfully.",
+                "port": port,
+                "portOpen": False,
+            }
+        return {
+            "state": "crashed",
+            "label": "CRASHED",
+            "message": f"Process exited with code {exit_code}.",
+            "port": port,
+            "portOpen": False,
+        }
+
+    def track_health_transition(self, name: str, health: Dict[str, Any]) -> None:
+        state = str(health.get("state", "idle"))
+        previous = self.health_states.get(name)
+        if previous == state:
+            return
+        self.health_states[name] = state
+        if state == "ready":
+            self.append_log(name, str(health.get("message", "Service is ready.")), "success")
+        elif state == "running":
+            self.append_log(name, str(health.get("message", "Service is running.")), "success")
+        elif state == "unhealthy":
+            self.append_log(name, str(health.get("message", "Service health check failed.")), "warn")
+        elif state == "crashed":
+            self.append_log(name, str(health.get("message", "Service crashed.")), "error")
+        elif state == "exited":
+            self.append_log(name, str(health.get("message", "Service exited.")), "system")
+
+    def parse_port(self, port: str) -> Optional[int]:
+        match = re.search(r"\d+", str(port or ""))
+        if not match:
+            return None
+        number = int(match.group(0))
+        if 1 <= number <= 65535:
+            return number
+        return None
+
+    def is_port_open(self, port: int) -> bool:
+        for host in ("127.0.0.1", "localhost"):
+            try:
+                with socket.create_connection((host, port), timeout=0.15):
+                    return True
+            except OSError:
+                continue
+        return False
 
     def is_running(self, name: str) -> bool:
         process = self.processes.get(name)
@@ -850,6 +990,8 @@ class ServiceManager:
             return {"ok": False, "message": stderr.strip() or f"{name} is not a git repository."}
 
         actions = {
+            "switch-development": self.git_switch_development,
+            "pull-development": self.git_pull_development,
             "sync-current-branch": self.git_sync_current_branch,
             "sync-development": self.git_sync_development,
         }
@@ -859,11 +1001,11 @@ class ServiceManager:
 
         result = handler(service)
         with self.lock:
-            sync_key = "development" if action == "sync-development" else "current"
+            sync_key = "development" if action in {"switch-development", "pull-development", "sync-development"} else "current"
             service.git[f"{sync_key}_synced_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             service.git[f"{sync_key}_sync_status"] = "ok" if result.get("ok") else "error"
             service.git[f"{sync_key}_sync_message"] = str(result.get("message", ""))[:500]
-            if action == "sync-development":
+            if sync_key == "development":
                 service.git["development_synced_at"] = service.git[f"{sync_key}_synced_at"]
                 service.git["development_sync_status"] = service.git[f"{sync_key}_sync_status"]
                 service.git["development_sync_message"] = service.git[f"{sync_key}_sync_message"]
@@ -872,6 +1014,32 @@ class ServiceManager:
         git = self.git_state(service, force=True)
         return {**result, "git": git}
 
+    def git_action_selected(self, names: List[str], action: str) -> Dict[str, Any]:
+        if not isinstance(names, list):
+            names = []
+        cleaned_names = [str(name).strip() for name in names if str(name).strip()]
+        results: List[Dict[str, Any]] = []
+        if not cleaned_names:
+            return {"ok": False, "message": "Select at least one service.", "results": results}
+
+        for name in cleaned_names:
+            try:
+                result = self.git_action(name, action)
+                results.append({"service": name, **result})
+            except Exception as exc:
+                message = str(exc)
+                results.append({"service": name, "ok": False, "message": message})
+                if name in self.git_logs:
+                    self.append_git_log(name, message, "error")
+
+        failed = [result for result in results if not result.get("ok")]
+        message = (
+            f"{len(results) - len(failed)} of {len(results)} git actions completed."
+            if failed
+            else f"Git action completed for {len(results)} service(s)."
+        )
+        return {"ok": not failed, "message": message, "results": results}
+
     def git_refresh(self, service: ServiceConfig) -> Dict[str, Any]:
         self.git_cache.pop(service.name, None)
         self.append_git_log(service.name, "Git status refreshed.", "system")
@@ -879,6 +1047,35 @@ class ServiceManager:
 
     def git_fetch(self, service: ServiceConfig) -> Dict[str, Any]:
         return self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
+
+    def git_switch_development(self, service: ServiceConfig) -> Dict[str, Any]:
+        steps = [("fetch origin --prune", ["fetch", "origin", "--prune"])]
+        fetch_result = self.run_git_steps(service, steps)
+        if not fetch_result.get("ok"):
+            return fetch_result
+        checkout_result = self.git_checkout_development(service)
+        return {
+            "ok": bool(checkout_result.get("ok")),
+            "message": "\n".join(
+                part
+                for part in [str(fetch_result.get("message", "")).strip(), str(checkout_result.get("message", "")).strip()]
+                if part
+            ),
+        }
+
+    def git_pull_development(self, service: ServiceConfig) -> Dict[str, Any]:
+        switch_result = self.git_switch_development(service)
+        if not switch_result.get("ok"):
+            return switch_result
+        pull_result = self.run_git_action(service, "pull --ff-only origin development", ["pull", "--ff-only", "origin", "development"])
+        return {
+            "ok": bool(pull_result.get("ok")),
+            "message": "\n".join(
+                part
+                for part in [str(switch_result.get("message", "")).strip(), str(pull_result.get("message", "")).strip()]
+                if part
+            ),
+        }
 
     def git_sync_current_branch(self, service: ServiceConfig) -> Dict[str, Any]:
         fetch_result = self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
@@ -1224,6 +1421,8 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
                 self.send_json(self.manager.remove_service(payload.get("service", "")))
             elif parsed.path == "/api/git/action":
                 self.send_json(self.manager.git_action(payload.get("service", ""), payload.get("action", "")))
+            elif parsed.path == "/api/git/action-selected":
+                self.send_json(self.manager.git_action_selected(payload.get("services", []), payload.get("action", "")))
             elif parsed.path == "/api/git/terminal":
                 self.send_json(self.manager.run_git_terminal_command(payload.get("service", ""), payload.get("command", "")))
             elif parsed.path == "/api/choose-folder":

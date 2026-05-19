@@ -7,8 +7,10 @@ const state = {
   initialized: false,
   logs: {},
   offsets: {},
+  logGeneration: {},
   gitLogs: {},
   gitOffsets: {},
+  gitLogGeneration: {},
   filter: "",
   terminalFilter: "",
   gitTerminalFilter: "",
@@ -21,6 +23,7 @@ const state = {
   editingService: null,
   contextService: null,
   gitBusy: false,
+  selectedGitBusy: false,
   gitTerminalBusy: false,
 };
 
@@ -55,6 +58,7 @@ const els = {
   gitTerminalTools: document.getElementById("gitTerminalTools"),
   terminalMetrics: document.getElementById("terminalMetrics"),
   terminalState: document.getElementById("terminalState"),
+  healthLabel: document.getElementById("healthLabel"),
   terminalOutput: document.getElementById("terminalOutput"),
   copyTerminalBtn: document.getElementById("copyTerminalBtn"),
   gitTerminalTitle: document.getElementById("gitTerminalTitle"),
@@ -90,6 +94,8 @@ const els = {
   gitLastSyncLabel: document.getElementById("gitLastSyncLabel"),
   gitActionsBtn: document.getElementById("gitActionsBtn"),
   gitActionsMenu: document.getElementById("gitActionsMenu"),
+  selectedGitActionsBtn: document.getElementById("selectedGitActionsBtn"),
+  selectedGitActionsMenu: document.getElementById("selectedGitActionsMenu"),
   terminalContextMenu: document.getElementById("terminalContextMenu"),
   copySelectionMenuBtn: document.getElementById("copySelectionMenuBtn"),
   copyAllMenuBtn: document.getElementById("copyAllMenuBtn"),
@@ -157,8 +163,8 @@ function selectService(name) {
   const service = serviceByName(name);
   els.commandInput.value = state.commands[name] || service.command || "pnpm start:dev";
   renderAll();
-  fetchLogs(true);
-  fetchGitLogs(true);
+  fetchLogs();
+  fetchGitLogs();
 }
 
 function closeTab(name) {
@@ -215,6 +221,19 @@ function renderHeader() {
   els.startSelectedBtn.disabled = false;
   if (els.refreshAppBtn) els.refreshAppBtn.disabled = !state.current;
   els.stopSelectedBtn.disabled = state.selected.size === 0;
+  if (els.selectedGitActionsBtn) {
+    els.selectedGitActionsBtn.disabled = state.selected.size === 0 || state.selectedGitBusy;
+    els.selectedGitActionsBtn.textContent = state.selectedGitBusy
+      ? "Git Working..."
+      : state.selected.size === 0
+        ? "Git Actions"
+        : `Git Actions (${state.selected.size}) v`;
+  }
+  if (els.selectedGitActionsMenu) {
+    els.selectedGitActionsMenu.querySelectorAll("button[data-selected-git-action]").forEach((button) => {
+      button.disabled = state.selectedGitBusy || state.selected.size === 0;
+    });
+  }
   els.selectAllBtn.disabled = state.services.length === 0;
   els.selectAllBtn.textContent =
     state.services.length > 0 && state.selected.size === state.services.length ? "Clear All" : "Select All";
@@ -269,7 +288,8 @@ function renderServices() {
         : `${service.name}: git repository not detected`;
 
       const dot = document.createElement("span");
-      dot.className = `dot ${service.status}`;
+      dot.className = `dot ${service.health?.state || service.status}`;
+      dot.title = service.health?.message || service.status;
 
       const menu = document.createElement("button");
       menu.type = "button";
@@ -368,7 +388,8 @@ function renderModalServices() {
     path.textContent = service.path || service.directory;
 
     const status = document.createElement("span");
-    status.className = `dot ${service.status}`;
+    status.className = `dot ${service.health?.state || service.status}`;
+    status.title = service.health?.message || service.status;
     const disabledSelection = isStartMode && isServiceRunning(service);
 
     button.append(text, path);
@@ -498,8 +519,14 @@ function renderCommandBar() {
   els.uptimeLabel.textContent = `UP: ${service.uptime || "--:--:--"}`;
   els.cpuValue.textContent = service.metrics?.cpu || "--";
   els.memValue.textContent = service.metrics?.memory || "--";
-  els.terminalState.textContent = service.status.toUpperCase();
-  els.terminalState.className = `state-pill ${service.status}`;
+  const health = service.health || { state: service.status, label: service.status.toUpperCase(), message: "" };
+  els.terminalState.textContent = health.label || service.status.toUpperCase();
+  els.terminalState.className = `state-pill ${health.state || service.status}`;
+  els.terminalState.title = health.message || "";
+  if (els.healthLabel) {
+    els.healthLabel.textContent = health.message || "";
+    els.healthLabel.title = health.message || "";
+  }
   if (els.gitCommandInput) {
     els.gitCommandInput.disabled = state.gitTerminalBusy;
     els.gitCommandInput.placeholder = service.git?.isRepo ? "git status" : "pwd";
@@ -587,7 +614,7 @@ function renderTerminal() {
   const previousTop = els.terminalOutput.scrollTop;
   const shouldFollow = state.terminalFollow[serviceName] !== false || isOutputNearBottom(els.terminalOutput);
   const filter = state.terminalFilter.trim().toLowerCase();
-  const lines = (state.logs[state.current] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
+  const lines = (state.logs[serviceName] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
   renderLogLines(els.terminalOutput, lines.slice(-1200));
   if (shouldFollow) {
     scrollOutputToBottom(els.terminalOutput);
@@ -607,7 +634,7 @@ function renderGitTerminal() {
   const previousTop = els.gitTerminalOutput.scrollTop;
   const shouldFollow = state.gitTerminalFollow[serviceName] !== false || isOutputNearBottom(els.gitTerminalOutput);
   const filter = state.gitTerminalFilter.trim().toLowerCase();
-  const lines = (state.gitLogs[state.current] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
+  const lines = (state.gitLogs[serviceName] || []).filter((entry) => !filter || entry.line.toLowerCase().includes(filter));
   renderLogLines(els.gitTerminalOutput, lines.slice(-1200));
   if (shouldFollow) {
     scrollOutputToBottom(els.gitTerminalOutput);
@@ -624,6 +651,39 @@ function renderLogLines(output, lines) {
     div.textContent = entry.line;
     output.append(div);
   });
+}
+
+function logEntryId(entry) {
+  const id = Number(entry?.id);
+  return Number.isFinite(id) ? id : 0;
+}
+
+function mergeLogEntries(existing = [], incoming = []) {
+  const byId = new Map();
+  existing.forEach((entry) => {
+    const id = logEntryId(entry);
+    if (id > 0) byId.set(id, entry);
+  });
+  incoming.forEach((entry) => {
+    const id = logEntryId(entry);
+    if (id > 0) byId.set(id, entry);
+  });
+  return [...byId.values()].sort((a, b) => logEntryId(a) - logEntryId(b)).slice(-1600);
+}
+
+function nextLogOffset(currentOffset, entries, serverNext) {
+  const maxEntryId = entries.reduce((max, entry) => Math.max(max, logEntryId(entry)), 0);
+  const parsedNext = Number(serverNext);
+  const next = Number.isFinite(parsedNext) ? parsedNext : 0;
+  return Math.max(currentOffset || 0, next, maxEntryId);
+}
+
+function resetApplicationLogView(serviceName) {
+  if (!serviceName) return;
+  state.logGeneration[serviceName] = (state.logGeneration[serviceName] || 0) + 1;
+  state.logs[serviceName] = [];
+  state.offsets[serviceName] = 0;
+  if (state.current === serviceName) renderTerminal();
 }
 
 function isOutputNearBottom(output) {
@@ -663,8 +723,10 @@ async function refreshState() {
     if (!state.commands[service.name]) state.commands[service.name] = service.command;
     if (!state.logs[service.name]) state.logs[service.name] = [];
     if (!state.offsets[service.name]) state.offsets[service.name] = 0;
+    if (!state.logGeneration[service.name]) state.logGeneration[service.name] = 0;
     if (!state.gitLogs[service.name]) state.gitLogs[service.name] = [];
     if (!state.gitOffsets[service.name]) state.gitOffsets[service.name] = 0;
+    if (!state.gitLogGeneration[service.name]) state.gitLogGeneration[service.name] = 0;
   });
   if (!state.initialized) {
     state.initialized = true;
@@ -675,62 +737,85 @@ async function refreshState() {
 }
 
 async function fetchLogs(reset = false) {
-  if (!state.current) return;
+  const serviceName = state.current;
+  if (!serviceName) return;
   if (reset) {
-    state.logs[state.current] = [];
-    state.offsets[state.current] = 0;
+    state.logGeneration[serviceName] = (state.logGeneration[serviceName] || 0) + 1;
+    state.logs[serviceName] = [];
+    state.offsets[serviceName] = 0;
   }
-  const after = state.offsets[state.current] || 0;
-  const data = await api(`/api/logs?service=${encodeURIComponent(state.current)}&after=${after}`);
-  if (data.entries?.length) {
-    state.logs[state.current].push(...data.entries);
-    state.logs[state.current] = state.logs[state.current].slice(-1600);
+  const generation = state.logGeneration[serviceName] || 0;
+  const after = state.offsets[serviceName] || 0;
+  const data = await api(`/api/logs?service=${encodeURIComponent(serviceName)}&after=${after}`);
+  if (!serviceByName(serviceName)) return;
+  if ((state.logGeneration[serviceName] || 0) !== generation) return;
+  const currentOffset = state.offsets[serviceName] || 0;
+  const entries = (data.entries || []).filter((entry) => logEntryId(entry) > currentOffset);
+  if (entries.length) {
+    state.logs[serviceName] = mergeLogEntries(state.logs[serviceName], entries);
   }
-  state.offsets[state.current] = data.next || after;
-  renderTerminal();
+  state.offsets[serviceName] = nextLogOffset(currentOffset, state.logs[serviceName] || [], data.next);
+  if (state.current === serviceName) renderTerminal();
 }
 
 async function fetchGitLogs(reset = false) {
-  if (!state.current) return;
+  const serviceName = state.current;
+  if (!serviceName) return;
   if (reset) {
-    state.gitLogs[state.current] = [];
-    state.gitOffsets[state.current] = 0;
+    state.gitLogGeneration[serviceName] = (state.gitLogGeneration[serviceName] || 0) + 1;
+    state.gitLogs[serviceName] = [];
+    state.gitOffsets[serviceName] = 0;
   }
-  const after = state.gitOffsets[state.current] || 0;
-  const data = await api(`/api/git/logs?service=${encodeURIComponent(state.current)}&after=${after}`);
-  if (data.entries?.length) {
-    state.gitLogs[state.current].push(...data.entries);
-    state.gitLogs[state.current] = state.gitLogs[state.current].slice(-1600);
+  const generation = state.gitLogGeneration[serviceName] || 0;
+  const after = state.gitOffsets[serviceName] || 0;
+  const data = await api(`/api/git/logs?service=${encodeURIComponent(serviceName)}&after=${after}`);
+  if (!serviceByName(serviceName)) return;
+  if ((state.gitLogGeneration[serviceName] || 0) !== generation) return;
+  const currentOffset = state.gitOffsets[serviceName] || 0;
+  const entries = (data.entries || []).filter((entry) => logEntryId(entry) > currentOffset);
+  if (entries.length) {
+    state.gitLogs[serviceName] = mergeLogEntries(state.gitLogs[serviceName], entries);
   }
-  state.gitOffsets[state.current] = data.next || after;
-  renderGitTerminal();
+  state.gitOffsets[serviceName] = nextLogOffset(currentOffset, state.gitLogs[serviceName] || [], data.next);
+  if (state.current === serviceName) renderGitTerminal();
 }
 
 async function startCurrent() {
-  if (!state.current) return;
-  state.commands[state.current] = els.commandInput.value.trim();
-  ensureTab(state.current);
-  await post("/api/start", { service: state.current, command: state.commands[state.current] });
+  const serviceName = state.current;
+  if (!serviceName) return;
+  const wasRunning = serviceByName(serviceName)?.status === "running";
+  state.commands[serviceName] = els.commandInput.value.trim();
+  ensureTab(serviceName);
+  if (!wasRunning) resetApplicationLogView(serviceName);
+  const result = await post("/api/start", { service: serviceName, command: state.commands[serviceName] });
+  if (!wasRunning) resetApplicationLogView(serviceName);
+  if (!result.ok) {
+    alert(result.message || "Service could not be started.");
+  }
   await refreshState();
-  await fetchLogs();
+  if (state.current === serviceName) await fetchLogs();
 }
 
 async function stopCurrent() {
-  if (!state.current) return;
-  await post("/api/stop", { service: state.current });
+  const serviceName = state.current;
+  if (!serviceName) return;
+  await post("/api/stop", { service: serviceName });
   await refreshState();
 }
 
 async function refreshCurrent() {
-  if (!state.current) return;
-  state.commands[state.current] = els.commandInput.value.trim();
-  ensureTab(state.current);
-  const result = await post("/api/refresh", { service: state.current, command: state.commands[state.current] });
+  const serviceName = state.current;
+  if (!serviceName) return;
+  state.commands[serviceName] = els.commandInput.value.trim();
+  ensureTab(serviceName);
+  resetApplicationLogView(serviceName);
+  const result = await post("/api/refresh", { service: serviceName, command: state.commands[serviceName] });
+  resetApplicationLogView(serviceName);
   if (!result.ok) {
     alert(result.message || "Service could not be refreshed.");
   }
   await refreshState();
-  await fetchLogs();
+  if (state.current === serviceName) await fetchLogs();
 }
 
 async function refreshService(name) {
@@ -739,7 +824,9 @@ async function refreshService(name) {
     await refreshCurrent();
     return;
   }
+  resetApplicationLogView(name);
   const result = await post("/api/refresh", { service: name, command: state.commands[name] });
+  resetApplicationLogView(name);
   if (!result.ok) {
     alert(result.message || "Service could not be refreshed.");
   }
@@ -747,10 +834,11 @@ async function refreshService(name) {
 }
 
 async function interruptCurrent() {
-  if (!state.current) return;
-  const service = serviceByName(state.current);
+  const serviceName = state.current;
+  if (!serviceName) return;
+  const service = serviceByName(serviceName);
   if (service?.status !== "running") return;
-  await post("/api/interrupt", { service: state.current });
+  await post("/api/interrupt", { service: serviceName });
   await refreshState();
 }
 
@@ -765,7 +853,16 @@ async function startSelected() {
     return;
   }
   if (state.current) state.commands[state.current] = els.commandInput.value.trim();
-  await post("/api/start-selected", { services, commands: state.commands });
+  const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
+  servicesToReset.forEach(resetApplicationLogView);
+  const result = await post("/api/start-selected", { services, commands: state.commands });
+  servicesToReset.forEach(resetApplicationLogView);
+  if (!result.ok) {
+    const failed = (result.results || []).filter((item) => !item.ok);
+    if (failed.length) {
+      alert(failed.map((item) => item.message || "Service could not be started.").join("\n"));
+    }
+  }
   services.forEach(ensureTab);
   clearSelection();
   selectService(services[0]);
@@ -776,7 +873,16 @@ async function startSelectedFromModal() {
   if (state.modalMode !== "start") return;
   const services = [...state.selected];
   if (!services.length) return;
-  await post("/api/start-selected", { services, commands: state.commands });
+  const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
+  servicesToReset.forEach(resetApplicationLogView);
+  const result = await post("/api/start-selected", { services, commands: state.commands });
+  servicesToReset.forEach(resetApplicationLogView);
+  if (!result.ok) {
+    const failed = (result.results || []).filter((item) => !item.ok);
+    if (failed.length) {
+      alert(failed.map((item) => item.message || "Service could not be started.").join("\n"));
+    }
+  }
   services.forEach(ensureTab);
   closeServiceModal();
   clearSelection();
@@ -838,6 +944,10 @@ function replaceServiceReferences(previousName, nextName) {
     state.offsets[nextName] = state.offsets[previousName];
     delete state.offsets[previousName];
   }
+  if (state.logGeneration[previousName] !== undefined) {
+    state.logGeneration[nextName] = state.logGeneration[previousName];
+    delete state.logGeneration[previousName];
+  }
   if (state.gitLogs[previousName]) {
     state.gitLogs[nextName] = state.gitLogs[previousName];
     delete state.gitLogs[previousName];
@@ -845,6 +955,10 @@ function replaceServiceReferences(previousName, nextName) {
   if (state.gitOffsets[previousName]) {
     state.gitOffsets[nextName] = state.gitOffsets[previousName];
     delete state.gitOffsets[previousName];
+  }
+  if (state.gitLogGeneration[previousName] !== undefined) {
+    state.gitLogGeneration[nextName] = state.gitLogGeneration[previousName];
+    delete state.gitLogGeneration[previousName];
   }
   if (state.terminalFollow[previousName] !== undefined) {
     state.terminalFollow[nextName] = state.terminalFollow[previousName];
@@ -869,8 +983,10 @@ async function removeService(name) {
   delete state.commands[name];
   delete state.logs[name];
   delete state.offsets[name];
+  delete state.logGeneration[name];
   delete state.gitLogs[name];
   delete state.gitOffsets[name];
+  delete state.gitLogGeneration[name];
   delete state.terminalFollow[name];
   delete state.gitTerminalFollow[name];
   await refreshState();
@@ -904,19 +1020,31 @@ function clearSelection() {
 }
 
 async function clearCurrent() {
-  if (!state.current) return;
-  const data = await post("/api/clear", { service: state.current });
-  state.logs[state.current] = [];
-  state.offsets[state.current] = data.next || 0;
-  renderTerminal();
+  const serviceName = state.current;
+  if (!serviceName) return;
+  state.logGeneration[serviceName] = (state.logGeneration[serviceName] || 0) + 1;
+  state.logs[serviceName] = [];
+  state.offsets[serviceName] = 0;
+  if (state.current === serviceName) renderTerminal();
+  const data = await post("/api/clear", { service: serviceName });
+  state.logGeneration[serviceName] = (state.logGeneration[serviceName] || 0) + 1;
+  state.logs[serviceName] = [];
+  state.offsets[serviceName] = data.next || 0;
+  if (state.current === serviceName) renderTerminal();
 }
 
 async function clearGitCurrent() {
-  if (!state.current) return;
-  const data = await post("/api/git/clear", { service: state.current });
-  state.gitLogs[state.current] = [];
-  state.gitOffsets[state.current] = data.next || 0;
-  renderGitTerminal();
+  const serviceName = state.current;
+  if (!serviceName) return;
+  state.gitLogGeneration[serviceName] = (state.gitLogGeneration[serviceName] || 0) + 1;
+  state.gitLogs[serviceName] = [];
+  state.gitOffsets[serviceName] = 0;
+  if (state.current === serviceName) renderGitTerminal();
+  const data = await post("/api/git/clear", { service: serviceName });
+  state.gitLogGeneration[serviceName] = (state.gitLogGeneration[serviceName] || 0) + 1;
+  state.gitLogs[serviceName] = [];
+  state.gitOffsets[serviceName] = data.next || 0;
+  if (state.current === serviceName) renderGitTerminal();
 }
 
 async function openTarget(target) {
@@ -936,6 +1064,7 @@ function toggleGitActionsMenu() {
   if (!els.gitActionsMenu || !state.current) return;
   hideTerminalContextMenu();
   hideServiceContextMenu();
+  hideSelectedGitActionsMenu();
   els.gitActionsMenu.hidden = !els.gitActionsMenu.hidden;
 }
 
@@ -943,39 +1072,82 @@ function hideGitActionsMenu() {
   if (els.gitActionsMenu) els.gitActionsMenu.hidden = true;
 }
 
+function toggleSelectedGitActionsMenu() {
+  if (!els.selectedGitActionsMenu || state.selected.size === 0 || state.selectedGitBusy) return;
+  hideTerminalContextMenu();
+  hideServiceContextMenu();
+  hideGitActionsMenu();
+  els.selectedGitActionsMenu.hidden = !els.selectedGitActionsMenu.hidden;
+}
+
+function hideSelectedGitActionsMenu() {
+  if (els.selectedGitActionsMenu) els.selectedGitActionsMenu.hidden = true;
+}
+
 async function runGitAction(action) {
-  if (!state.current || !action) return;
+  const serviceName = state.current;
+  if (!serviceName || !action) return;
   hideGitActionsMenu();
   state.gitBusy = true;
   renderCommandBar();
   try {
-    const result = await post("/api/git/action", { service: state.current, action });
+    const result = await post("/api/git/action", { service: serviceName, action });
     if (!result.ok) {
       alert(result.message || "Git action failed.");
     }
     await refreshState();
-    await fetchGitLogs();
+    if (state.current === serviceName) await fetchGitLogs();
   } finally {
     state.gitBusy = false;
     renderCommandBar();
   }
 }
 
+async function runSelectedGitAction(action) {
+  const services = [...state.selected];
+  if (!services.length || !action) return;
+  hideSelectedGitActionsMenu();
+  state.selectedGitBusy = true;
+  if (!services.includes(state.current)) {
+    selectService(services[0]);
+  }
+  setTerminalMode("git");
+  renderHeader();
+  try {
+    const result = await post("/api/git/action-selected", { services, action });
+    await refreshState();
+    await fetchGitLogs(true);
+    const failed = (result.results || []).filter((item) => !item.ok);
+    if (!result.ok && failed.length) {
+      const detail = failed
+        .slice(0, 5)
+        .map((item) => `${item.service}: ${item.message || "Git action failed."}`)
+        .join("\n");
+      alert(`Some git actions failed:\n${detail}${failed.length > 5 ? `\n+${failed.length - 5} more` : ""}`);
+    }
+  } finally {
+    state.selectedGitBusy = false;
+    renderHeader();
+    renderCommandBar();
+  }
+}
+
 async function runGitTerminalCommand(event) {
   event.preventDefault();
-  if (!state.current || !els.gitCommandInput || state.gitTerminalBusy) return;
+  const serviceName = state.current;
+  if (!serviceName || !els.gitCommandInput || state.gitTerminalBusy) return;
   const command = els.gitCommandInput.value.trim();
   if (!command) return;
   els.gitCommandInput.value = "";
   state.gitTerminalBusy = true;
   renderCommandBar();
   try {
-    const result = await post("/api/git/terminal", { service: state.current, command });
+    const result = await post("/api/git/terminal", { service: serviceName, command });
     if (!result.ok) {
       console.warn(result.message || "Git terminal command failed.");
     }
     await refreshState();
-    await fetchGitLogs();
+    if (state.current === serviceName) await fetchGitLogs();
   } finally {
     state.gitTerminalBusy = false;
     renderCommandBar();
@@ -1284,6 +1456,15 @@ function bindEvents() {
     if (!button) return;
     runGitAction(button.dataset.gitAction);
   });
+  els.selectedGitActionsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleSelectedGitActionsMenu();
+  });
+  els.selectedGitActionsMenu?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-selected-git-action]");
+    if (!button) return;
+    runSelectedGitAction(button.dataset.selectedGitAction);
+  });
   els.emptyStartSelectedBtn.addEventListener("click", startSelected);
   if (els.serviceModalActionBtn) {
     els.serviceModalActionBtn.addEventListener("click", startSelectedFromModal);
@@ -1309,6 +1490,7 @@ function bindEvents() {
       hideTerminalContextMenu();
       hideServiceContextMenu();
       hideGitActionsMenu();
+      hideSelectedGitActionsMenu();
       if (!els.serviceModal.hidden) {
         closeServiceModal();
         return;
@@ -1343,6 +1525,14 @@ function bindEvents() {
       !els.gitActionsBtn.contains(event.target)
     ) {
       hideGitActionsMenu();
+    }
+    if (
+      els.selectedGitActionsMenu &&
+      !els.selectedGitActionsMenu.hidden &&
+      !els.selectedGitActionsMenu.contains(event.target) &&
+      !els.selectedGitActionsBtn.contains(event.target)
+    ) {
+      hideSelectedGitActionsMenu();
     }
   });
 }

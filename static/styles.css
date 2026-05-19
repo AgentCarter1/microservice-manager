@@ -202,7 +202,7 @@ button:disabled {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-right: 1px solid var(--border);
   background: var(--panel);
 }
@@ -256,6 +256,34 @@ button:disabled {
 .section-title {
   color: var(--muted);
   font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.service-bulk-actions {
+  padding: 0 18px 12px;
+}
+
+.service-git-actions-wrap {
+  position: relative;
+}
+
+.service-git-actions-btn {
+  width: 100%;
+  height: 32px;
+  color: var(--accent);
+  background: rgba(125, 200, 255, 0.06);
+}
+
+.service-git-actions-btn:hover:not(:disabled),
+.service-git-actions-btn:focus-visible {
+  background: var(--panel-2);
+}
+
+.selected-git-actions-menu {
+  top: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  width: 100%;
+  min-width: 0;
 }
 
 .mini-button {
@@ -403,7 +431,29 @@ button:disabled {
   background: var(--green);
 }
 
+.dot.ready {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(78, 230, 167, 0.12);
+}
+
+.dot.starting {
+  background: var(--accent);
+}
+
+.dot.unhealthy,
+.dot.exited {
+  background: var(--yellow);
+}
+
+.dot.stopped {
+  background: var(--dim);
+}
+
 .dot.error {
+  background: var(--red);
+}
+
+.dot.crashed {
   background: var(--red);
 }
 
@@ -731,7 +781,33 @@ button:disabled {
   color: var(--green);
 }
 
+.state-pill.ready {
+  background: var(--green-dark);
+  color: var(--green);
+}
+
+.state-pill.starting {
+  background: #24324c;
+  color: var(--accent);
+}
+
+.state-pill.unhealthy,
+.state-pill.exited {
+  background: #3f3422;
+  color: var(--yellow);
+}
+
+.state-pill.stopped {
+  background: var(--panel-3);
+  color: var(--muted);
+}
+
 .state-pill.error {
+  background: #3f2428;
+  color: var(--red);
+}
+
+.state-pill.crashed {
   background: #3f2428;
   color: var(--red);
 }
@@ -739,6 +815,15 @@ button:disabled {
 .state-pill.missing {
   background: #3f3422;
   color: var(--yellow);
+}
+
+.health-label {
+  max-width: min(360px, 30vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
 }
 
 .terminal-output {
