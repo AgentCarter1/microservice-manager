@@ -5,9 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Miroservice Manager</title>
     <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260617-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260617-3" />
   </head>
   <body>
+    <div id="appSplash" class="app-splash" role="status" aria-live="polite">
+      <div class="splash-inner">
+        <img class="splash-logo" src="/assets/logo.svg" alt="" />
+        <div class="splash-title">Miroservice Manager</div>
+        <div class="splash-bar"><span class="splash-bar-fill"></span></div>
+        <div id="splashStatus" class="splash-status">Servisler yükleniyor...</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand" aria-label="Miroservice Manager">
         <img class="brand-logo" src="/assets/logo.svg" alt="" />
@@ -210,6 +219,8 @@
       <button id="deleteServiceContextBtn" class="service-context-danger">Delete</button>
     </div>
 
-    <script src="/app.js?v=20260617-1"></script>
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+    <script src="/app.js?v=20260617-2"></script>
   </body>
 </html>

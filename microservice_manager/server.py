@@ -1253,7 +1253,9 @@ class ServiceManager:
             result = self.run_git_action(service, label, args)
             messages.append(result.get("message", label))
             if not result.get("ok"):
-                return {"ok": False, "message": "\n".join(messages)}
+                # Surface only the failing step so the reason is not buried under
+                # the (successful) output of earlier steps such as `fetch`.
+                return {"ok": False, "message": result.get("message") or f"git {label} failed."}
         return {"ok": True, "message": "\n".join(messages)}
 
     def run_git_action(self, service: ServiceConfig, label: str, args: List[str]) -> Dict[str, Any]:

@@ -15,6 +15,10 @@
   --yellow: #f3bd63;
   --red: #ff8d7d;
   --blue: #7dc8ff;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow-pop: 0 14px 40px rgba(0, 0, 0, 0.42);
+  --ring: 0 0 0 2px rgba(139, 216, 255, 0.55);
 }
 
 * {
@@ -289,36 +293,6 @@ button:disabled {
 .service-git-actions-btn:hover:not(:disabled),
 .service-git-actions-btn:focus-visible {
   background: var(--panel-2);
-}
-
-button.action-status-working,
-button.action-status-working:hover,
-button.action-status-working:focus-visible {
-  border-color: rgba(243, 189, 99, 0.62);
-  background: rgba(243, 189, 99, 0.16);
-  color: var(--yellow);
-}
-
-button.action-status-success,
-button.action-status-success:hover,
-button.action-status-success:focus-visible {
-  border-color: rgba(78, 230, 167, 0.62);
-  background: rgba(78, 230, 167, 0.16);
-  color: var(--green);
-}
-
-button.action-status-error,
-button.action-status-error:hover,
-button.action-status-error:focus-visible {
-  border-color: rgba(255, 141, 125, 0.62);
-  background: rgba(255, 141, 125, 0.16);
-  color: var(--red);
-}
-
-button.action-status-working:disabled,
-button.action-status-success:disabled,
-button.action-status-error:disabled {
-  opacity: 1;
 }
 
 .selected-app-actions-menu,
@@ -1394,5 +1368,404 @@ button.action-status-error:disabled {
 
   .statusbar {
     padding-left: 250px;
+  }
+}
+
+/* ============================================================
+   UX polish: motion, focus, soft corners
+   ============================================================ */
+
+.primary,
+.ghost,
+.icon-button,
+.run,
+.soft,
+.head-button,
+.mini-button,
+.service-app-actions-btn,
+.service-git-actions-btn,
+.terminal-tab,
+.service-row-menu-btn,
+.edit-service,
+.delete-service {
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.08s ease, box-shadow 0.16s ease;
+}
+
+.primary:hover:not(:disabled),
+.run:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.ghost:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.soft:hover:not(:disabled),
+.head-button:hover:not(:disabled),
+.mini-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--panel-2);
+}
+
+.primary:active:not(:disabled),
+.ghost:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.run:active:not(:disabled),
+.soft:active:not(:disabled),
+.head-button:active:not(:disabled),
+.mini-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+.service-row:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.command-bar input:focus-visible,
+.search-wrap input:focus-visible,
+.terminal-filter input:focus-visible,
+.git-command-line input:focus-visible {
+  box-shadow: none;
+}
+
+.search-wrap:focus-within,
+.terminal-filter:focus-within,
+.form-field input:focus-visible {
+  border-color: var(--accent);
+}
+
+.service-row {
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+/* Soft corners on key surfaces */
+.primary,
+.ghost,
+.icon-button,
+.run,
+.soft,
+.head-button,
+.mini-button,
+.meta-badge,
+.state-pill,
+.search-wrap,
+.terminal-filter,
+.service-branch,
+.service-row-menu-btn,
+.edit-service,
+.delete-service,
+.empty-icon {
+  border-radius: var(--radius-sm);
+}
+
+.command-bar,
+.terminal-card,
+.terminal-console,
+.git-actions-menu,
+.selected-app-actions-menu,
+.selected-git-actions-menu,
+.context-menu,
+.service-modal,
+.modal-service,
+.git-summary,
+.metrics,
+.form-field input,
+.selected-git-text-action input {
+  border-radius: var(--radius);
+}
+
+.git-actions-menu button,
+.selected-app-actions-menu button,
+.selected-git-actions-menu button,
+.context-menu button {
+  border-radius: var(--radius-sm);
+}
+
+.terminal-head,
+.terminal-console-head {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.terminal-tab:first-child {
+  border-top-left-radius: var(--radius);
+}
+
+/* ============================================================
+   Splash / loading screen
+   ============================================================ */
+
+.app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 38%, #0d1a30 0%, var(--bg) 70%);
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+
+.app-splash.is-hiding {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-inner {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  text-align: center;
+  animation: splash-rise 0.5s ease both;
+}
+
+.splash-logo {
+  width: 76px;
+  height: 76px;
+  filter: drop-shadow(0 8px 26px rgba(139, 216, 255, 0.28));
+  animation: splash-float 2.6s ease-in-out infinite;
+}
+
+.splash-title {
+  color: var(--text);
+  font: 800 18px "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 1px;
+}
+
+.splash-bar {
+  position: relative;
+  width: 220px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--panel-3);
+}
+
+.splash-bar-fill {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--green), transparent);
+  animation: splash-slide 1.2s ease-in-out infinite;
+}
+
+.splash-status {
+  color: var(--muted);
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.5px;
+}
+
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes splash-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes splash-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* ============================================================
+   Toast notifications
+   ============================================================ */
+
+.toast-container {
+  position: fixed;
+  z-index: 150;
+  right: 18px;
+  bottom: 46px;
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: start;
+  padding: 12px 12px 12px 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+  animation: toast-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast.is-leaving {
+  animation: toast-out 0.22s ease forwards;
+}
+
+.toast-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  color: var(--muted);
+}
+
+.toast-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toast-body {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.toast-title {
+  color: var(--text);
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.3px;
+}
+
+.toast-message {
+  color: var(--muted);
+  font: 600 11px/1.45 "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.toast-close {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 800 16px/1 "SF Mono", Menlo, Consolas, monospace;
+  border-radius: var(--radius-sm);
+  transition: color 0.14s ease, background-color 0.14s ease;
+}
+
+.toast-close:hover {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left center;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.toast-working {
+  border-left-color: var(--yellow);
+}
+.toast-working .toast-icon {
+  color: var(--yellow);
+}
+.toast-success {
+  border-left-color: var(--green);
+}
+.toast-success .toast-icon {
+  color: var(--green);
+}
+.toast-error {
+  border-left-color: var(--red);
+}
+.toast-error .toast-icon {
+  color: var(--red);
+}
+.toast-info {
+  border-left-color: var(--accent);
+}
+.toast-info .toast-icon {
+  color: var(--accent);
+}
+
+.toast-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(243, 189, 99, 0.28);
+  border-top-color: var(--yellow);
+  animation: toast-spin 0.7s linear infinite;
+}
+
+@keyframes toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(24px) scale(0.98);
+  }
+}
+
+@keyframes toast-progress-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo,
+  .splash-bar-fill,
+  .toast,
+  .toast-spinner,
+  .toast-progress {
+    animation: none !important;
   }
 }

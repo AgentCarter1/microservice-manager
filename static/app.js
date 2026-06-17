@@ -23,11 +23,9 @@ const state = {
   editingService: null,
   contextService: null,
   gitBusy: false,
-  gitFeedback: { status: "idle", text: "", title: "" },
   selectedAppBusy: false,
   selectedGitBusy: false,
   selectedGitTextAction: null,
-  selectedGitFeedback: { status: "idle", text: "", title: "" },
   gitTerminalBusy: false,
 };
 
@@ -116,6 +114,9 @@ const els = {
   editServiceContextBtn: document.getElementById("editServiceContextBtn"),
   deleteServiceContextBtn: document.getElementById("deleteServiceContextBtn"),
   helpBtn: document.getElementById("helpBtn"),
+  appSplash: document.getElementById("appSplash"),
+  splashStatus: document.getElementById("splashStatus"),
+  toastContainer: document.getElementById("toastContainer"),
 };
 
 const SELECTED_GIT_TEXT_ACTIONS = {
@@ -146,9 +147,6 @@ const GIT_ACTION_LABELS = {
   push: "Push",
 };
 
-let gitFeedbackTimer = null;
-let selectedGitFeedbackTimer = null;
-
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -162,6 +160,149 @@ async function api(path, options = {}) {
 
 async function post(path, payload = {}) {
   return api(path, { method: "POST", body: JSON.stringify(payload) });
+}
+
+/* ------------------------------------------------------------------
+   Splash / loading screen
+   ------------------------------------------------------------------ */
+
+let splashHidden = false;
+
+function setSplashStatus(text) {
+  if (els.splashStatus && text) els.splashStatus.textContent = text;
+}
+
+function hideSplash() {
+  if (splashHidden || !els.appSplash) return;
+  splashHidden = true;
+  els.appSplash.classList.add("is-hiding");
+  setTimeout(() => els.appSplash?.remove(), 500);
+}
+
+/* ------------------------------------------------------------------
+   Toast notifications
+   ------------------------------------------------------------------ */
+
+const TOAST_ICONS = {
+  success: '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+  error: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8v.5"/></svg>',
+};
+
+let toastSeq = 0;
+const toasts = new Map();
+
+function toastIconMarkup(status) {
+  if (status === "working") return '<span class="toast-spinner" aria-hidden="true"></span>';
+  return TOAST_ICONS[status] || TOAST_ICONS.info;
+}
+
+function clearToastTimer(entry) {
+  if (entry?.timer) {
+    window.clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+}
+
+function scheduleToastDismiss(id, ttl) {
+  const entry = toasts.get(id);
+  if (!entry || !ttl || ttl <= 0) return;
+  clearToastTimer(entry);
+  const progress = entry.el.querySelector(".toast-progress");
+  if (progress) {
+    progress.style.animation = "none";
+    // force reflow so the restart takes effect
+    void progress.offsetWidth;
+    progress.style.animation = `toast-progress-shrink ${ttl}ms linear forwards`;
+  }
+  entry.timer = window.setTimeout(() => dismissToast(id), ttl);
+}
+
+function showToast({ status = "info", title = "", message = "", ttl = 4200 } = {}) {
+  if (!els.toastContainer) return null;
+  const id = ++toastSeq;
+  const el = document.createElement("div");
+  el.className = `toast toast-${status}`;
+  el.innerHTML =
+    `<span class="toast-icon">${toastIconMarkup(status)}</span>` +
+    `<div class="toast-body"><strong class="toast-title"></strong><span class="toast-message"></span></div>` +
+    `<button class="toast-close" type="button" aria-label="Close">&times;</button>` +
+    `<span class="toast-progress"></span>`;
+  el.querySelector(".toast-title").textContent = title;
+  const messageEl = el.querySelector(".toast-message");
+  messageEl.textContent = message;
+  messageEl.hidden = !message;
+  el.querySelector(".toast-close").addEventListener("click", () => dismissToast(id));
+  els.toastContainer.append(el);
+  toasts.set(id, { el, timer: null });
+  scheduleToastDismiss(id, status === "working" ? 0 : ttl);
+  return id;
+}
+
+function updateToast(id, { status, title, message, ttl = 4200 } = {}) {
+  const entry = id != null ? toasts.get(id) : null;
+  if (!entry) return showToast({ status, title, message, ttl });
+  if (status) {
+    entry.el.className = `toast toast-${status}`;
+    const icon = entry.el.querySelector(".toast-icon");
+    if (icon) icon.innerHTML = toastIconMarkup(status);
+  }
+  if (title != null) entry.el.querySelector(".toast-title").textContent = title;
+  if (message != null) {
+    const messageEl = entry.el.querySelector(".toast-message");
+    messageEl.textContent = message;
+    messageEl.hidden = !message;
+  }
+  scheduleToastDismiss(id, status === "working" ? 0 : ttl);
+  return id;
+}
+
+function dismissToast(id) {
+  const entry = toasts.get(id);
+  if (!entry) return;
+  clearToastTimer(entry);
+  toasts.delete(id);
+  entry.el.classList.add("is-leaving");
+  setTimeout(() => entry.el.remove(), 220);
+}
+
+function notifySuccess(title, message = "", ttl = 4200) {
+  return showToast({ status: "success", title, message, ttl });
+}
+
+function notifyError(title, message = "", ttl = 8000) {
+  return showToast({ status: "error", title, message, ttl });
+}
+
+function notifyInfo(title, message = "", ttl = 4200) {
+  return showToast({ status: "info", title, message, ttl });
+}
+
+/* Summarize a list of {service, ok, message} results into a toast message. */
+function summarizeResults(results = []) {
+  const failed = results.filter((item) => !item.ok);
+  const detail = failed
+    .slice(0, 6)
+    .map((item) => `• ${item.service || "service"}: ${item.message || "failed"}`)
+    .join("\n");
+  return {
+    failedCount: failed.length,
+    detail: failed.length > 6 ? `${detail}\n• +${failed.length - 6} more` : detail,
+  };
+}
+
+/* Resolve a "working" toast from a bulk operation result. */
+function reportSelectedResult(toastId, label, total, result) {
+  const { failedCount, detail } = summarizeResults(result?.results || []);
+  const ok = result?.ok && failedCount === 0;
+  updateToast(toastId, {
+    status: ok ? "success" : "error",
+    title: ok
+      ? `${label}: ${total} servis tamamlandı`
+      : `${label}: ${total - failedCount} başarılı, ${failedCount} başarısız`,
+    message: ok ? "İşlem tüm servislerde tamamlandı." : detail,
+    ttl: ok ? 4200 : 9000,
+  });
 }
 
 function serviceByName(name) {
@@ -193,51 +334,6 @@ function setActionButton(button, iconName, label) {
   text.className = "button-label";
   text.textContent = label;
   button.replaceChildren(icon, text);
-}
-
-function setButtonStatus(button, feedback) {
-  if (!button) return;
-  const status = feedback?.status || "idle";
-  button.classList.toggle("action-status-working", status === "working");
-  button.classList.toggle("action-status-success", status === "success");
-  button.classList.toggle("action-status-error", status === "error");
-  button.title = feedback?.title || "";
-}
-
-function clearFeedbackTimer(scope) {
-  if (scope === "selected") {
-    if (selectedGitFeedbackTimer) window.clearTimeout(selectedGitFeedbackTimer);
-    selectedGitFeedbackTimer = null;
-    return;
-  }
-  if (gitFeedbackTimer) window.clearTimeout(gitFeedbackTimer);
-  gitFeedbackTimer = null;
-}
-
-function setGitFeedback(scope, status, text, title = "", ttl = 0) {
-  clearFeedbackTimer(scope);
-  const feedback = { status, text, title };
-  if (scope === "selected") {
-    state.selectedGitFeedback = feedback;
-    renderHeader();
-    if (ttl > 0) {
-      selectedGitFeedbackTimer = window.setTimeout(() => {
-        state.selectedGitFeedback = { status: "idle", text: "", title: "" };
-        selectedGitFeedbackTimer = null;
-        renderHeader();
-      }, ttl);
-    }
-    return;
-  }
-  state.gitFeedback = feedback;
-  renderCommandBar();
-  if (ttl > 0) {
-    gitFeedbackTimer = window.setTimeout(() => {
-      state.gitFeedback = { status: "idle", text: "", title: "" };
-      gitFeedbackTimer = null;
-      renderCommandBar();
-    }, ttl);
-  }
 }
 
 function gitActionLabel(action) {
@@ -318,17 +414,12 @@ function renderHeader() {
     });
   }
   if (els.selectedGitActionsBtn) {
-    const gitFeedback = state.selectedGitFeedback || { status: "idle", text: "", title: "" };
     els.selectedGitActionsBtn.disabled = state.selected.size === 0 || state.selectedGitBusy;
-    els.selectedGitActionsBtn.textContent =
-      gitFeedback.status !== "idle" && gitFeedback.text
-        ? gitFeedback.text
-        : state.selectedGitBusy
-          ? "Git Working..."
-          : state.selected.size === 0
-            ? "Git Actions v"
-            : `Git Actions (${state.selected.size}) v`;
-    setButtonStatus(els.selectedGitActionsBtn, gitFeedback);
+    els.selectedGitActionsBtn.textContent = state.selectedGitBusy
+      ? "Git Working..."
+      : state.selected.size === 0
+        ? "Git Actions v"
+        : `Git Actions (${state.selected.size}) v`;
   }
   if (els.selectedGitActionsMenu) {
     els.selectedGitActionsMenu.querySelectorAll("button[data-selected-git-action]").forEach((button) => {
@@ -697,11 +788,8 @@ function renderGitSummary(service) {
       : git.developmentStatus || "clean";
   els.gitSummary.className = `git-summary ${mode}`;
   if (els.gitActionsBtn) {
-    const feedback = state.gitFeedback || { status: "idle", text: "", title: "" };
     els.gitActionsBtn.disabled = !state.current || state.gitBusy;
-    els.gitActionsBtn.textContent =
-      feedback.status !== "idle" && feedback.text ? feedback.text : state.gitBusy ? "Git Working..." : "Git Actions v";
-    setButtonStatus(els.gitActionsBtn, feedback);
+    els.gitActionsBtn.textContent = state.gitBusy ? "Git Working..." : "Git Actions v";
   }
   if (els.gitActionsMenu) {
     els.gitActionsMenu.querySelectorAll("button[data-git-action]").forEach((button) => {
@@ -896,8 +984,10 @@ async function startCurrent() {
   if (!wasRunning) resetApplicationLogView(serviceName);
   const result = await post("/api/start", { service: serviceName, command: state.commands[serviceName] });
   if (!wasRunning) resetApplicationLogView(serviceName);
-  if (!result.ok) {
-    alert(result.message || "Service could not be started.");
+  if (result.ok) {
+    notifySuccess(`Başlatıldı: ${serviceName}`, result.message || "");
+  } else {
+    notifyError(`Başlatılamadı: ${serviceName}`, result.message || "Servis başlatılamadı.");
   }
   await refreshState();
   if (state.current === serviceName) await fetchLogs();
@@ -906,7 +996,12 @@ async function startCurrent() {
 async function stopCurrent() {
   const serviceName = state.current;
   if (!serviceName) return;
-  await post("/api/stop", { service: serviceName });
+  const result = await post("/api/stop", { service: serviceName });
+  if (result.ok) {
+    notifyInfo(`Durduruluyor: ${serviceName}`, result.message || "");
+  } else {
+    notifyError(`Durdurulamadı: ${serviceName}`, result.message || "Servis durdurulamadı.");
+  }
   await refreshState();
 }
 
@@ -918,8 +1013,10 @@ async function refreshCurrent() {
   resetApplicationLogView(serviceName);
   const result = await post("/api/refresh", { service: serviceName, command: state.commands[serviceName] });
   resetApplicationLogView(serviceName);
-  if (!result.ok) {
-    alert(result.message || "Service could not be refreshed.");
+  if (result.ok) {
+    notifySuccess(`Yenilendi: ${serviceName}`, result.message || "");
+  } else {
+    notifyError(`Yenilenemedi: ${serviceName}`, result.message || "Servis yenilenemedi.");
   }
   await refreshState();
   if (state.current === serviceName) await fetchLogs();
@@ -934,8 +1031,10 @@ async function refreshService(name) {
   resetApplicationLogView(name);
   const result = await post("/api/refresh", { service: name, command: state.commands[name] });
   resetApplicationLogView(name);
-  if (!result.ok) {
-    alert(result.message || "Service could not be refreshed.");
+  if (result.ok) {
+    notifySuccess(`Yenilendi: ${name}`, result.message || "");
+  } else {
+    notifyError(`Yenilenemedi: ${name}`, result.message || "Servis yenilenemedi.");
   }
   await refreshState();
 }
@@ -946,14 +1045,18 @@ async function startAll() {
   if (state.current) state.commands[state.current] = els.commandInput.value.trim();
   const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
   servicesToReset.forEach(resetApplicationLogView);
+  const toastId = showToast({ status: "working", title: `Tümü başlatılıyor · ${services.length} servis`, message: "Çalışıyor..." });
   const result = await post("/api/start-all", { commands: state.commands });
   servicesToReset.forEach(resetApplicationLogView);
-  if (!result.ok) {
-    const failed = (result.results || []).filter((item) => !item.ok);
-    if (failed.length) {
-      alert(failed.map((item) => `${item.service || "Service"}: ${item.message || "Service could not be started."}`).join("\n"));
-    }
-  }
+  const { failedCount, detail } = summarizeResults(result.results || []);
+  updateToast(toastId, {
+    status: failedCount ? "error" : "success",
+    title: failedCount
+      ? `Başlatma: ${services.length - failedCount} başarılı, ${failedCount} başarısız`
+      : `Tümü başlatıldı · ${services.length} servis`,
+    message: failedCount ? detail : "Tüm servisler başlatıldı.",
+    ttl: failedCount ? 9000 : 4200,
+  });
   const target = state.current || services[0];
   if (target) ensureTab(target);
   await refreshState();
@@ -968,7 +1071,12 @@ async function interruptCurrent() {
   if (!serviceName) return;
   const service = serviceByName(serviceName);
   if (service?.status !== "running") return;
-  await post("/api/interrupt", { service: serviceName });
+  const result = await post("/api/interrupt", { service: serviceName });
+  if (result.ok) {
+    notifyInfo(`SIGINT gönderildi: ${serviceName}`, result.message || "");
+  } else {
+    notifyError(`Kesilemedi: ${serviceName}`, result.message || "");
+  }
   await refreshState();
 }
 
@@ -985,14 +1093,10 @@ async function startSelected() {
   if (state.current) state.commands[state.current] = els.commandInput.value.trim();
   const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
   servicesToReset.forEach(resetApplicationLogView);
+  const toastId = showToast({ status: "working", title: `Başlatılıyor · ${services.length} servis`, message: "Çalışıyor..." });
   const result = await post("/api/start-selected", { services, commands: state.commands });
   servicesToReset.forEach(resetApplicationLogView);
-  if (!result.ok) {
-    const failed = (result.results || []).filter((item) => !item.ok);
-    if (failed.length) {
-      alert(failed.map((item) => item.message || "Service could not be started.").join("\n"));
-    }
-  }
+  reportSelectedResult(toastId, "Başlat", services.length, result);
   services.forEach(ensureTab);
   clearSelection();
   selectService(services[0]);
@@ -1005,14 +1109,10 @@ async function startSelectedFromModal() {
   if (!services.length) return;
   const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
   servicesToReset.forEach(resetApplicationLogView);
+  const toastId = showToast({ status: "working", title: `Başlatılıyor · ${services.length} servis`, message: "Çalışıyor..." });
   const result = await post("/api/start-selected", { services, commands: state.commands });
   servicesToReset.forEach(resetApplicationLogView);
-  if (!result.ok) {
-    const failed = (result.results || []).filter((item) => !item.ok);
-    if (failed.length) {
-      alert(failed.map((item) => item.message || "Service could not be started.").join("\n"));
-    }
-  }
+  reportSelectedResult(toastId, "Başlat", services.length, result);
   services.forEach(ensureTab);
   closeServiceModal();
   clearSelection();
@@ -1023,7 +1123,9 @@ async function startSelectedFromModal() {
 async function stopSelected() {
   const services = [...state.selected];
   if (!services.length) return;
-  await post("/api/stop-selected", { services });
+  const toastId = showToast({ status: "working", title: `Durduruluyor · ${services.length} servis`, message: "Çalışıyor..." });
+  const result = await post("/api/stop-selected", { services });
+  reportSelectedResult(toastId, "Durdur", services.length, result);
   clearSelection();
   await refreshState();
 }
@@ -1033,14 +1135,10 @@ async function refreshSelected() {
   if (!services.length) return;
   if (state.current) state.commands[state.current] = els.commandInput.value.trim();
   services.forEach(resetApplicationLogView);
+  const toastId = showToast({ status: "working", title: `Yenileniyor · ${services.length} servis`, message: "Çalışıyor..." });
   const result = await post("/api/refresh-selected", { services, commands: state.commands });
   services.forEach(resetApplicationLogView);
-  if (!result.ok) {
-    const failed = (result.results || []).filter((item) => !item.ok);
-    if (failed.length) {
-      alert(failed.map((item) => `${item.service || "Service"}: ${item.message || "Service could not be refreshed."}`).join("\n"));
-    }
-  }
+  reportSelectedResult(toastId, "Yenile", services.length, result);
   services.forEach(ensureTab);
   const target = state.current && services.includes(state.current) ? state.current : services[0];
   clearSelection();
@@ -1062,7 +1160,7 @@ async function saveService(event) {
       ? await post("/api/services/update", { ...payload, service: editingName })
       : await post("/api/services/add", payload);
   if (!result.ok) {
-    alert(result.message || "Service could not be saved.");
+    notifyError("Servis kaydedilemedi", result.message || "");
     return;
   }
   if (state.modalMode === "edit" && result.service) {
@@ -1070,9 +1168,11 @@ async function saveService(event) {
     closeServiceModal();
     ensureTab(result.service.name);
     state.current = result.service.name;
+    notifySuccess(`Güncellendi: ${result.service.name}`, result.message || "");
   } else {
     els.serviceForm.reset();
     els.serviceCommandInput.value = "pnpm start:dev";
+    notifySuccess(`Eklendi: ${payload.name}`, result.message || "");
   }
   await refreshState();
   renderModalServices();
@@ -1124,9 +1224,10 @@ function replaceServiceReferences(previousName, nextName) {
 async function removeService(name) {
   const result = await post("/api/services/remove", { service: name });
   if (!result.ok) {
-    alert(result.message || "Service could not be removed.");
+    notifyError(`Kaldırılamadı: ${name}`, result.message || "");
     return;
   }
+  notifyInfo(`Kaldırıldı: ${name}`, result.message || "");
   state.selected.delete(name);
   state.tabs = state.tabs.filter((tab) => tab !== name);
   if (state.current === name) state.current = state.tabs[0] || null;
@@ -1299,21 +1400,25 @@ async function runGitAction(action) {
   const label = gitActionLabel(action);
   hideGitActionsMenu();
   state.gitBusy = true;
-  setGitFeedback("current", "working", `Running: ${label}`, `${label} is running for ${serviceName}.`);
+  renderCommandBar();
+  const toastId = showToast({ status: "working", title: `${label} · ${serviceName}`, message: "Çalışıyor..." });
   try {
     const result = await post("/api/git/action", { service: serviceName, action });
-    const status = result.ok ? "success" : "error";
-    const text = result.ok ? `Done: ${label}` : `Failed: ${label}`;
-    setGitFeedback("current", status, text, result.message || text, result.ok ? 5000 : 9000);
-    if (!result.ok) {
-      alert(result.message || "Git action failed.");
-    }
+    updateToast(toastId, {
+      status: result.ok ? "success" : "error",
+      title: `${result.ok ? "Tamamlandı" : "Başarısız"}: ${label} · ${serviceName}`,
+      message: result.message || (result.ok ? "Git işlemi tamamlandı." : "Git işlemi başarısız oldu."),
+      ttl: result.ok ? 4200 : 8000,
+    });
     await refreshState();
     if (state.current === serviceName) await fetchGitLogs();
   } catch (error) {
-    const message = error?.message || "Git action failed.";
-    setGitFeedback("current", "error", `Failed: ${label}`, message, 9000);
-    alert(message);
+    updateToast(toastId, {
+      status: "error",
+      title: `Başarısız: ${label} · ${serviceName}`,
+      message: error?.message || "Git işlemi başarısız oldu.",
+      ttl: 8000,
+    });
   } finally {
     state.gitBusy = false;
     renderCommandBar();
@@ -1327,13 +1432,17 @@ async function runSelectedGitAction(action, value = "") {
   const textAction = SELECTED_GIT_TEXT_ACTIONS[action];
   const trimmedValue = String(value || "").trim();
   if (textAction && !trimmedValue) {
-    alert(textAction.emptyMessage);
+    notifyError("Eksik bilgi", textAction.emptyMessage, 5000);
     els.selectedGitTextActionInput?.focus();
     return;
   }
   hideSelectedGitActionsMenu();
   state.selectedGitBusy = true;
-  setGitFeedback("selected", "working", `Running: ${label}`, `${label} is running for ${services.length} selected service(s).`);
+  const toastId = showToast({
+    status: "working",
+    title: `${label} · ${services.length} servis`,
+    message: "Çalışıyor...",
+  });
   if (!services.includes(state.current)) {
     selectService(services[0]);
   }
@@ -1343,26 +1452,24 @@ async function runSelectedGitAction(action, value = "") {
     const result = await post("/api/git/action-selected", { services, action, value: trimmedValue });
     await refreshState();
     await fetchGitLogs(true);
-    const failed = (result.results || []).filter((item) => !item.ok);
-    const succeeded = Math.max(0, services.length - failed.length);
-    const status = !result.ok || failed.length ? "error" : "success";
-    const text = status === "success" ? `Done: ${label}` : `Failed: ${label}`;
-    const title =
-      status === "success"
-        ? `${label} completed for ${services.length} service(s).`
-        : `${label}: ${succeeded} completed, ${failed.length} failed.`;
-    setGitFeedback("selected", status, text, title, status === "success" ? 5000 : 9000);
-    if (!result.ok && failed.length) {
-      const detail = failed
-        .slice(0, 5)
-        .map((item) => `${item.service}: ${item.message || "Git action failed."}`)
-        .join("\n");
-      alert(`Some git actions failed:\n${detail}${failed.length > 5 ? `\n+${failed.length - 5} more` : ""}`);
-    }
+    const { failedCount, detail } = summarizeResults(result.results || []);
+    const succeeded = Math.max(0, services.length - failedCount);
+    const ok = result.ok && failedCount === 0;
+    updateToast(toastId, {
+      status: ok ? "success" : "error",
+      title: ok
+        ? `Tamamlandı: ${label} · ${services.length} servis`
+        : `${label}: ${succeeded} başarılı, ${failedCount} başarısız`,
+      message: ok ? "Tüm servislerde git işlemi tamamlandı." : detail,
+      ttl: ok ? 4200 : 9000,
+    });
   } catch (error) {
-    const message = error?.message || "Git action failed.";
-    setGitFeedback("selected", "error", `Failed: ${label}`, message, 9000);
-    alert(message);
+    updateToast(toastId, {
+      status: "error",
+      title: `Başarısız: ${label}`,
+      message: error?.message || "Git işlemi başarısız oldu.",
+      ttl: 9000,
+    });
   } finally {
     state.selectedGitBusy = false;
     renderHeader();
@@ -1382,7 +1489,7 @@ async function runGitTerminalCommand(event) {
   try {
     const result = await post("/api/git/terminal", { service: serviceName, command });
     if (!result.ok) {
-      console.warn(result.message || "Git terminal command failed.");
+      notifyError(`Komut başarısız · ${serviceName}`, result.message || `$ ${command}`);
     }
     await refreshState();
     if (state.current === serviceName) await fetchGitLogs();
@@ -1620,7 +1727,12 @@ function bindEvents() {
   els.browseServicePathBtn.addEventListener("click", chooseServiceFolder);
   els.selectAllBtn.addEventListener("click", toggleSelectAll);
   els.stopAllBtn.addEventListener("click", async () => {
-    await post("/api/stop-all");
+    const result = await post("/api/stop-all");
+    if (result.ok) {
+      notifyInfo("Tüm servisler durduruluyor", result.message || "");
+    } else {
+      notifyError("Durdurma başarısız", result.message || "");
+    }
     await refreshState();
   });
   if (els.refreshBtn) els.refreshBtn.addEventListener("click", refreshState);
@@ -1811,8 +1923,29 @@ function bindEvents() {
   });
 }
 
-bindEvents();
-refreshState();
-setInterval(() => refreshState().catch(console.error), 1000);
-setInterval(() => fetchLogs().catch(console.error), 450);
-setInterval(() => fetchGitLogs().catch(console.error), 650);
+async function boot() {
+  bindEvents();
+  try {
+    await refreshState();
+  } catch (error) {
+    console.error(error);
+    setSplashStatus("Bağlantı kurulamadı, yeniden deneniyor...");
+    // keep the splash up but start polling so it recovers on its own
+  } finally {
+    if (state.initialized) {
+      setSplashStatus("Hazır");
+      hideSplash();
+    }
+  }
+  setInterval(() => {
+    refreshState()
+      .then(() => {
+        if (!splashHidden && state.initialized) hideSplash();
+      })
+      .catch(console.error);
+  }, 1000);
+  setInterval(() => fetchLogs().catch(console.error), 450);
+  setInterval(() => fetchGitLogs().catch(console.error), 650);
+}
+
+boot();
