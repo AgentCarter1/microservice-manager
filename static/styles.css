@@ -59,7 +59,7 @@ button:disabled {
 .topbar {
   height: 74px;
   display: grid;
-  grid-template-columns: 300px minmax(260px, 1fr) auto auto auto auto;
+  grid-template-columns: 300px minmax(260px, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 0 22px 0 0;
@@ -160,9 +160,8 @@ button:disabled {
   stroke-linejoin: round;
 }
 
-#startSelectedBtn,
-#stopSelectedBtn {
-  min-width: 136px;
+#startAllBtn {
+  min-width: 112px;
 }
 
 #stopAllBtn {
@@ -259,25 +258,70 @@ button:disabled {
 }
 
 .service-bulk-actions {
+  display: grid;
+  gap: 8px;
   padding: 0 18px 12px;
 }
 
+.service-app-actions-wrap,
 .service-git-actions-wrap {
   position: relative;
 }
 
+.service-app-actions-btn,
 .service-git-actions-btn {
   width: 100%;
   height: 32px;
+}
+
+.service-app-actions-btn {
+  color: var(--green);
+  background: rgba(78, 230, 167, 0.06);
+}
+
+.service-git-actions-btn {
   color: var(--accent);
   background: rgba(125, 200, 255, 0.06);
 }
 
+.service-app-actions-btn:hover:not(:disabled),
+.service-app-actions-btn:focus-visible,
 .service-git-actions-btn:hover:not(:disabled),
 .service-git-actions-btn:focus-visible {
   background: var(--panel-2);
 }
 
+button.action-status-working,
+button.action-status-working:hover,
+button.action-status-working:focus-visible {
+  border-color: rgba(243, 189, 99, 0.62);
+  background: rgba(243, 189, 99, 0.16);
+  color: var(--yellow);
+}
+
+button.action-status-success,
+button.action-status-success:hover,
+button.action-status-success:focus-visible {
+  border-color: rgba(78, 230, 167, 0.62);
+  background: rgba(78, 230, 167, 0.16);
+  color: var(--green);
+}
+
+button.action-status-error,
+button.action-status-error:hover,
+button.action-status-error:focus-visible {
+  border-color: rgba(255, 141, 125, 0.62);
+  background: rgba(255, 141, 125, 0.16);
+  color: var(--red);
+}
+
+button.action-status-working:disabled,
+button.action-status-success:disabled,
+button.action-status-error:disabled {
+  opacity: 1;
+}
+
+.selected-app-actions-menu,
 .selected-git-actions-menu {
   top: calc(100% + 6px);
   left: 0;
@@ -680,6 +724,52 @@ button:disabled {
 .git-actions-menu button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.selected-git-text-action {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.selected-git-text-action label {
+  color: var(--accent);
+  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.selected-git-text-action input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--border);
+  outline: 0;
+  background: var(--terminal);
+  color: var(--text);
+  padding: 0 9px;
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.selected-git-text-action input:focus {
+  border-color: var(--accent);
+}
+
+.selected-git-text-action-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.selected-git-text-action-buttons button {
+  height: 30px;
+  text-align: center;
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.selected-git-text-action-buttons button[type="submit"] {
+  color: var(--green);
 }
 
 .terminal-card {

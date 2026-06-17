@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Miroservice Manager</title>
     <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260519-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260617-1" />
   </head>
   <body>
     <header class="topbar">
@@ -17,8 +17,7 @@
         <input id="searchInput" type="search" placeholder="Filter services..." autocomplete="off" />
         <kbd>CMD + K</kbd>
       </label>
-      <button id="startSelectedBtn" class="primary">Start Selected (0)</button>
-      <button id="stopSelectedBtn" class="ghost">Stop Selected (0)</button>
+      <button id="startAllBtn" class="primary">Start All</button>
       <button id="stopAllBtn" class="ghost">Stop All</button>
       <button id="terminalBtn" class="icon-button">Terminal</button>
     </header>
@@ -31,12 +30,33 @@
           <button id="selectAllBtn" class="mini-button">Select All</button>
         </div>
         <div class="service-bulk-actions">
+          <div class="service-app-actions-wrap">
+            <button id="selectedAppActionsBtn" class="mini-button service-app-actions-btn" type="button">App Actions v</button>
+            <div id="selectedAppActionsMenu" class="git-actions-menu selected-app-actions-menu" hidden>
+              <button data-selected-app-action="start" type="button">Start</button>
+              <button data-selected-app-action="stop" type="button">Stop</button>
+              <button data-selected-app-action="refresh" type="button">Refresh</button>
+            </div>
+          </div>
           <div class="service-git-actions-wrap">
             <button id="selectedGitActionsBtn" class="mini-button service-git-actions-btn" type="button">Git Actions v</button>
             <div id="selectedGitActionsMenu" class="git-actions-menu selected-git-actions-menu" hidden>
-              <button data-selected-git-action="switch-development" type="button">Switch Development</button>
-              <button data-selected-git-action="pull-development" type="button">Pull Development</button>
-              <button data-selected-git-action="sync-current-branch" type="button">Sync Current Branch</button>
+              <button data-selected-git-action="checkout-development" type="button">Checkout Development</button>
+              <button data-selected-git-action="checkout-pull-development" type="button">Checkout And Pull Development</button>
+              <button data-selected-git-action="sync-development" type="button">Sync Development</button>
+              <button data-selected-git-action="pull-current-branch" type="button">Pull Current Branch</button>
+              <button data-selected-git-action="checkout-new-branch" type="button">Git Checkout -b</button>
+              <button data-selected-git-action="add-all" type="button">Git Add All</button>
+              <button data-selected-git-action="commit" type="button">Git Commit</button>
+              <button data-selected-git-action="push" type="button">Git Push</button>
+              <form id="selectedGitTextActionForm" class="selected-git-text-action" hidden>
+                <label id="selectedGitTextActionLabel" for="selectedGitTextActionInput">Value</label>
+                <input id="selectedGitTextActionInput" autocomplete="off" />
+                <div class="selected-git-text-action-buttons">
+                  <button id="selectedGitTextActionRunBtn" type="submit">Run</button>
+                  <button id="selectedGitTextActionCancelBtn" type="button">Cancel</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
@@ -190,6 +210,6 @@
       <button id="deleteServiceContextBtn" class="service-context-danger">Delete</button>
     </div>
 
-    <script src="/app.js?v=20260519-3"></script>
+    <script src="/app.js?v=20260617-1"></script>
   </body>
 </html>

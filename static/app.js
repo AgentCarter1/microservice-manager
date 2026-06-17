@@ -23,7 +23,11 @@ const state = {
   editingService: null,
   contextService: null,
   gitBusy: false,
+  gitFeedback: { status: "idle", text: "", title: "" },
+  selectedAppBusy: false,
   selectedGitBusy: false,
+  selectedGitTextAction: null,
+  selectedGitFeedback: { status: "idle", text: "", title: "" },
   gitTerminalBusy: false,
 };
 
@@ -41,8 +45,7 @@ const els = {
   terminalCard: document.getElementById("terminalCard"),
   emptyState: document.getElementById("emptyState"),
   emptyStartSelectedBtn: document.getElementById("emptyStartSelectedBtn"),
-  startSelectedBtn: document.getElementById("startSelectedBtn"),
-  stopSelectedBtn: document.getElementById("stopSelectedBtn"),
+  startAllBtn: document.getElementById("startAllBtn"),
   stopAllBtn: document.getElementById("stopAllBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
   addServiceBtn: document.getElementById("addServiceBtn"),
@@ -94,8 +97,15 @@ const els = {
   gitLastSyncLabel: document.getElementById("gitLastSyncLabel"),
   gitActionsBtn: document.getElementById("gitActionsBtn"),
   gitActionsMenu: document.getElementById("gitActionsMenu"),
+  selectedAppActionsBtn: document.getElementById("selectedAppActionsBtn"),
+  selectedAppActionsMenu: document.getElementById("selectedAppActionsMenu"),
   selectedGitActionsBtn: document.getElementById("selectedGitActionsBtn"),
   selectedGitActionsMenu: document.getElementById("selectedGitActionsMenu"),
+  selectedGitTextActionForm: document.getElementById("selectedGitTextActionForm"),
+  selectedGitTextActionLabel: document.getElementById("selectedGitTextActionLabel"),
+  selectedGitTextActionInput: document.getElementById("selectedGitTextActionInput"),
+  selectedGitTextActionRunBtn: document.getElementById("selectedGitTextActionRunBtn"),
+  selectedGitTextActionCancelBtn: document.getElementById("selectedGitTextActionCancelBtn"),
   terminalContextMenu: document.getElementById("terminalContextMenu"),
   copySelectionMenuBtn: document.getElementById("copySelectionMenuBtn"),
   copyAllMenuBtn: document.getElementById("copyAllMenuBtn"),
@@ -107,6 +117,37 @@ const els = {
   deleteServiceContextBtn: document.getElementById("deleteServiceContextBtn"),
   helpBtn: document.getElementById("helpBtn"),
 };
+
+const SELECTED_GIT_TEXT_ACTIONS = {
+  "checkout-new-branch": {
+    label: "Branch name",
+    placeholder: "feature/new-branch",
+    emptyMessage: "Branch name is required.",
+  },
+  commit: {
+    label: "Commit message",
+    placeholder: "Describe this change",
+    emptyMessage: "Commit message is required.",
+  },
+};
+
+const GIT_ACTION_LABELS = {
+  refresh: "Refresh",
+  "switch-development": "Checkout Development",
+  "pull-development": "Checkout + Pull",
+  "sync-current-branch": "Sync Current",
+  "checkout-development": "Checkout Development",
+  "checkout-pull-development": "Checkout + Pull",
+  "sync-development": "Sync Development",
+  "pull-current-branch": "Pull Current",
+  "checkout-new-branch": "Checkout -b",
+  "add-all": "Add All",
+  commit: "Commit",
+  push: "Push",
+};
+
+let gitFeedbackTimer = null;
+let selectedGitFeedbackTimer = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -154,6 +195,55 @@ function setActionButton(button, iconName, label) {
   button.replaceChildren(icon, text);
 }
 
+function setButtonStatus(button, feedback) {
+  if (!button) return;
+  const status = feedback?.status || "idle";
+  button.classList.toggle("action-status-working", status === "working");
+  button.classList.toggle("action-status-success", status === "success");
+  button.classList.toggle("action-status-error", status === "error");
+  button.title = feedback?.title || "";
+}
+
+function clearFeedbackTimer(scope) {
+  if (scope === "selected") {
+    if (selectedGitFeedbackTimer) window.clearTimeout(selectedGitFeedbackTimer);
+    selectedGitFeedbackTimer = null;
+    return;
+  }
+  if (gitFeedbackTimer) window.clearTimeout(gitFeedbackTimer);
+  gitFeedbackTimer = null;
+}
+
+function setGitFeedback(scope, status, text, title = "", ttl = 0) {
+  clearFeedbackTimer(scope);
+  const feedback = { status, text, title };
+  if (scope === "selected") {
+    state.selectedGitFeedback = feedback;
+    renderHeader();
+    if (ttl > 0) {
+      selectedGitFeedbackTimer = window.setTimeout(() => {
+        state.selectedGitFeedback = { status: "idle", text: "", title: "" };
+        selectedGitFeedbackTimer = null;
+        renderHeader();
+      }, ttl);
+    }
+    return;
+  }
+  state.gitFeedback = feedback;
+  renderCommandBar();
+  if (ttl > 0) {
+    gitFeedbackTimer = window.setTimeout(() => {
+      state.gitFeedback = { status: "idle", text: "", title: "" };
+      gitFeedbackTimer = null;
+      renderCommandBar();
+    }, ttl);
+  }
+}
+
+function gitActionLabel(action) {
+  return GIT_ACTION_LABELS[action] || "Git";
+}
+
 function selectService(name) {
   if (!serviceByName(name)) return;
   ensureTab(name);
@@ -198,14 +288,7 @@ function renderWorkspaceMode() {
 function renderHeader() {
   const running = state.services.filter((service) => service.status === "running").length;
   if (els.activeInstances) els.activeInstances.textContent = `${running} active instances`;
-  const startLabel =
-    state.services.length === 0
-      ? "Add First Service"
-      : state.selected.size === 0
-        ? "Start Service"
-        : `Start Selected (${state.selected.size})`;
-  setActionButton(els.startSelectedBtn, "play", startLabel);
-  setActionButton(els.stopSelectedBtn, "stop", `Stop Selected (${state.selected.size})`);
+  setActionButton(els.startAllBtn, "play", "Start All");
   setActionButton(els.stopAllBtn, "stop", "Stop All");
   setActionButton(els.terminalBtn, "terminal", "Terminal");
   const emptyStartLabel =
@@ -218,22 +301,43 @@ function renderHeader() {
   setActionButton(els.runBtn, "play", "Run");
   setActionButton(els.refreshAppBtn, "terminal", "Refresh App");
   setActionButton(els.stopBtn, "stop", "Stop");
-  els.startSelectedBtn.disabled = false;
+  if (els.startAllBtn) els.startAllBtn.disabled = state.services.length === 0 || state.selectedAppBusy;
+  if (els.stopAllBtn) els.stopAllBtn.disabled = running === 0 || state.selectedAppBusy;
   if (els.refreshAppBtn) els.refreshAppBtn.disabled = !state.current;
-  els.stopSelectedBtn.disabled = state.selected.size === 0;
-  if (els.selectedGitActionsBtn) {
-    els.selectedGitActionsBtn.disabled = state.selected.size === 0 || state.selectedGitBusy;
-    els.selectedGitActionsBtn.textContent = state.selectedGitBusy
-      ? "Git Working..."
+  if (els.selectedAppActionsBtn) {
+    els.selectedAppActionsBtn.disabled = state.selected.size === 0 || state.selectedAppBusy;
+    els.selectedAppActionsBtn.textContent = state.selectedAppBusy
+      ? "App Working..."
       : state.selected.size === 0
-        ? "Git Actions"
-        : `Git Actions (${state.selected.size}) v`;
+        ? "App Actions v"
+        : `App Actions (${state.selected.size}) v`;
+  }
+  if (els.selectedAppActionsMenu) {
+    els.selectedAppActionsMenu.querySelectorAll("button[data-selected-app-action]").forEach((button) => {
+      button.disabled = state.selectedAppBusy || state.selected.size === 0;
+    });
+  }
+  if (els.selectedGitActionsBtn) {
+    const gitFeedback = state.selectedGitFeedback || { status: "idle", text: "", title: "" };
+    els.selectedGitActionsBtn.disabled = state.selected.size === 0 || state.selectedGitBusy;
+    els.selectedGitActionsBtn.textContent =
+      gitFeedback.status !== "idle" && gitFeedback.text
+        ? gitFeedback.text
+        : state.selectedGitBusy
+          ? "Git Working..."
+          : state.selected.size === 0
+            ? "Git Actions v"
+            : `Git Actions (${state.selected.size}) v`;
+    setButtonStatus(els.selectedGitActionsBtn, gitFeedback);
   }
   if (els.selectedGitActionsMenu) {
     els.selectedGitActionsMenu.querySelectorAll("button[data-selected-git-action]").forEach((button) => {
       button.disabled = state.selectedGitBusy || state.selected.size === 0;
     });
   }
+  if (els.selectedGitTextActionInput) els.selectedGitTextActionInput.disabled = state.selectedGitBusy;
+  if (els.selectedGitTextActionRunBtn) els.selectedGitTextActionRunBtn.disabled = state.selectedGitBusy || state.selected.size === 0;
+  if (els.selectedGitTextActionCancelBtn) els.selectedGitTextActionCancelBtn.disabled = state.selectedGitBusy;
   els.selectAllBtn.disabled = state.services.length === 0;
   els.selectAllBtn.textContent =
     state.services.length > 0 && state.selected.size === state.services.length ? "Clear All" : "Select All";
@@ -593,8 +697,11 @@ function renderGitSummary(service) {
       : git.developmentStatus || "clean";
   els.gitSummary.className = `git-summary ${mode}`;
   if (els.gitActionsBtn) {
+    const feedback = state.gitFeedback || { status: "idle", text: "", title: "" };
     els.gitActionsBtn.disabled = !state.current || state.gitBusy;
-    els.gitActionsBtn.textContent = state.gitBusy ? "Git Working..." : "Git Actions v";
+    els.gitActionsBtn.textContent =
+      feedback.status !== "idle" && feedback.text ? feedback.text : state.gitBusy ? "Git Working..." : "Git Actions v";
+    setButtonStatus(els.gitActionsBtn, feedback);
   }
   if (els.gitActionsMenu) {
     els.gitActionsMenu.querySelectorAll("button[data-git-action]").forEach((button) => {
@@ -833,6 +940,29 @@ async function refreshService(name) {
   await refreshState();
 }
 
+async function startAll() {
+  const services = state.services.map((service) => service.name);
+  if (!services.length) return;
+  if (state.current) state.commands[state.current] = els.commandInput.value.trim();
+  const servicesToReset = services.filter((name) => serviceByName(name)?.status !== "running");
+  servicesToReset.forEach(resetApplicationLogView);
+  const result = await post("/api/start-all", { commands: state.commands });
+  servicesToReset.forEach(resetApplicationLogView);
+  if (!result.ok) {
+    const failed = (result.results || []).filter((item) => !item.ok);
+    if (failed.length) {
+      alert(failed.map((item) => `${item.service || "Service"}: ${item.message || "Service could not be started."}`).join("\n"));
+    }
+  }
+  const target = state.current || services[0];
+  if (target) ensureTab(target);
+  await refreshState();
+  if (target && serviceByName(target)) {
+    selectService(target);
+    await fetchLogs();
+  }
+}
+
 async function interruptCurrent() {
   const serviceName = state.current;
   if (!serviceName) return;
@@ -896,6 +1026,27 @@ async function stopSelected() {
   await post("/api/stop-selected", { services });
   clearSelection();
   await refreshState();
+}
+
+async function refreshSelected() {
+  const services = [...state.selected];
+  if (!services.length) return;
+  if (state.current) state.commands[state.current] = els.commandInput.value.trim();
+  services.forEach(resetApplicationLogView);
+  const result = await post("/api/refresh-selected", { services, commands: state.commands });
+  services.forEach(resetApplicationLogView);
+  if (!result.ok) {
+    const failed = (result.results || []).filter((item) => !item.ok);
+    if (failed.length) {
+      alert(failed.map((item) => `${item.service || "Service"}: ${item.message || "Service could not be refreshed."}`).join("\n"));
+    }
+  }
+  services.forEach(ensureTab);
+  const target = state.current && services.includes(state.current) ? state.current : services[0];
+  clearSelection();
+  if (target) selectService(target);
+  await refreshState();
+  if (state.current) await fetchLogs();
 }
 
 async function saveService(event) {
@@ -1064,6 +1215,7 @@ function toggleGitActionsMenu() {
   if (!els.gitActionsMenu || !state.current) return;
   hideTerminalContextMenu();
   hideServiceContextMenu();
+  hideSelectedAppActionsMenu();
   hideSelectedGitActionsMenu();
   els.gitActionsMenu.hidden = !els.gitActionsMenu.hidden;
 }
@@ -1072,52 +1224,134 @@ function hideGitActionsMenu() {
   if (els.gitActionsMenu) els.gitActionsMenu.hidden = true;
 }
 
+function toggleSelectedAppActionsMenu() {
+  if (!els.selectedAppActionsMenu || state.selected.size === 0 || state.selectedAppBusy) return;
+  hideTerminalContextMenu();
+  hideServiceContextMenu();
+  hideGitActionsMenu();
+  hideSelectedGitActionsMenu();
+  els.selectedAppActionsMenu.hidden = !els.selectedAppActionsMenu.hidden;
+}
+
+function hideSelectedAppActionsMenu() {
+  if (els.selectedAppActionsMenu) els.selectedAppActionsMenu.hidden = true;
+}
+
 function toggleSelectedGitActionsMenu() {
   if (!els.selectedGitActionsMenu || state.selected.size === 0 || state.selectedGitBusy) return;
   hideTerminalContextMenu();
   hideServiceContextMenu();
   hideGitActionsMenu();
-  els.selectedGitActionsMenu.hidden = !els.selectedGitActionsMenu.hidden;
+  hideSelectedAppActionsMenu();
+  const shouldHide = !els.selectedGitActionsMenu.hidden;
+  if (shouldHide) {
+    hideSelectedGitActionsMenu();
+    return;
+  }
+  els.selectedGitActionsMenu.hidden = false;
 }
 
 function hideSelectedGitActionsMenu() {
   if (els.selectedGitActionsMenu) els.selectedGitActionsMenu.hidden = true;
+  hideSelectedGitTextAction();
+}
+
+function showSelectedGitTextAction(action) {
+  const config = SELECTED_GIT_TEXT_ACTIONS[action];
+  if (!config || !els.selectedGitTextActionForm || !els.selectedGitTextActionInput) return;
+  state.selectedGitTextAction = action;
+  if (els.selectedGitTextActionLabel) els.selectedGitTextActionLabel.textContent = config.label;
+  els.selectedGitTextActionInput.placeholder = config.placeholder;
+  els.selectedGitTextActionInput.value = "";
+  els.selectedGitTextActionForm.hidden = false;
+  renderHeader();
+  els.selectedGitTextActionInput.focus();
+}
+
+function hideSelectedGitTextAction() {
+  state.selectedGitTextAction = null;
+  if (els.selectedGitTextActionForm) els.selectedGitTextActionForm.hidden = true;
+  if (els.selectedGitTextActionInput) els.selectedGitTextActionInput.value = "";
+}
+
+async function runSelectedAppAction(action) {
+  if (!state.selected.size || !action) return;
+  hideSelectedAppActionsMenu();
+  state.selectedAppBusy = true;
+  renderHeader();
+  try {
+    if (action === "start") {
+      await startSelected();
+    } else if (action === "stop") {
+      await stopSelected();
+    } else if (action === "refresh") {
+      await refreshSelected();
+    }
+  } finally {
+    state.selectedAppBusy = false;
+    renderHeader();
+  }
 }
 
 async function runGitAction(action) {
   const serviceName = state.current;
   if (!serviceName || !action) return;
+  const label = gitActionLabel(action);
   hideGitActionsMenu();
   state.gitBusy = true;
-  renderCommandBar();
+  setGitFeedback("current", "working", `Running: ${label}`, `${label} is running for ${serviceName}.`);
   try {
     const result = await post("/api/git/action", { service: serviceName, action });
+    const status = result.ok ? "success" : "error";
+    const text = result.ok ? `Done: ${label}` : `Failed: ${label}`;
+    setGitFeedback("current", status, text, result.message || text, result.ok ? 5000 : 9000);
     if (!result.ok) {
       alert(result.message || "Git action failed.");
     }
     await refreshState();
     if (state.current === serviceName) await fetchGitLogs();
+  } catch (error) {
+    const message = error?.message || "Git action failed.";
+    setGitFeedback("current", "error", `Failed: ${label}`, message, 9000);
+    alert(message);
   } finally {
     state.gitBusy = false;
     renderCommandBar();
   }
 }
 
-async function runSelectedGitAction(action) {
+async function runSelectedGitAction(action, value = "") {
   const services = [...state.selected];
   if (!services.length || !action) return;
+  const label = gitActionLabel(action);
+  const textAction = SELECTED_GIT_TEXT_ACTIONS[action];
+  const trimmedValue = String(value || "").trim();
+  if (textAction && !trimmedValue) {
+    alert(textAction.emptyMessage);
+    els.selectedGitTextActionInput?.focus();
+    return;
+  }
   hideSelectedGitActionsMenu();
   state.selectedGitBusy = true;
+  setGitFeedback("selected", "working", `Running: ${label}`, `${label} is running for ${services.length} selected service(s).`);
   if (!services.includes(state.current)) {
     selectService(services[0]);
   }
   setTerminalMode("git");
   renderHeader();
   try {
-    const result = await post("/api/git/action-selected", { services, action });
+    const result = await post("/api/git/action-selected", { services, action, value: trimmedValue });
     await refreshState();
     await fetchGitLogs(true);
     const failed = (result.results || []).filter((item) => !item.ok);
+    const succeeded = Math.max(0, services.length - failed.length);
+    const status = !result.ok || failed.length ? "error" : "success";
+    const text = status === "success" ? `Done: ${label}` : `Failed: ${label}`;
+    const title =
+      status === "success"
+        ? `${label} completed for ${services.length} service(s).`
+        : `${label}: ${succeeded} completed, ${failed.length} failed.`;
+    setGitFeedback("selected", status, text, title, status === "success" ? 5000 : 9000);
     if (!result.ok && failed.length) {
       const detail = failed
         .slice(0, 5)
@@ -1125,6 +1359,10 @@ async function runSelectedGitAction(action) {
         .join("\n");
       alert(`Some git actions failed:\n${detail}${failed.length > 5 ? `\n+${failed.length - 5} more` : ""}`);
     }
+  } catch (error) {
+    const message = error?.message || "Git action failed.";
+    setGitFeedback("selected", "error", `Failed: ${label}`, message, 9000);
+    alert(message);
   } finally {
     state.selectedGitBusy = false;
     renderHeader();
@@ -1198,6 +1436,8 @@ function showTerminalContextMenu(event) {
   event.preventDefault();
   hideServiceContextMenu();
   hideGitActionsMenu();
+  hideSelectedAppActionsMenu();
+  hideSelectedGitActionsMenu();
   const selected = window.getSelection()?.toString().trim() || "";
   els.copySelectionMenuBtn.textContent = selected ? "Copy" : "Copy Visible";
   els.terminalContextMenu.hidden = false;
@@ -1219,6 +1459,8 @@ function showServiceContextMenu(event, serviceName) {
   hideTerminalContextMenu();
   hideServiceContextMenu();
   hideGitActionsMenu();
+  hideSelectedAppActionsMenu();
+  hideSelectedGitActionsMenu();
 
   state.contextService = service.name;
   els.openServiceContextBtn.textContent = "Open";
@@ -1282,6 +1524,8 @@ function closeServiceModal() {
   state.editingService = null;
   hideServiceContextMenu();
   hideGitActionsMenu();
+  hideSelectedAppActionsMenu();
+  hideSelectedGitActionsMenu();
   els.serviceForm.reset();
   els.serviceCommandInput.value = "pnpm start:dev";
   els.modalServiceList.hidden = false;
@@ -1370,8 +1614,7 @@ function bindEvents() {
     },
     { passive: true },
   );
-  els.startSelectedBtn.addEventListener("click", startSelected);
-  els.stopSelectedBtn.addEventListener("click", stopSelected);
+  els.startAllBtn.addEventListener("click", startAll);
   els.addServiceBtn.addEventListener("click", () => openServiceModal("add"));
   els.serviceForm.addEventListener("submit", saveService);
   els.browseServicePathBtn.addEventListener("click", chooseServiceFolder);
@@ -1460,10 +1703,32 @@ function bindEvents() {
     event.stopPropagation();
     toggleSelectedGitActionsMenu();
   });
+  els.selectedAppActionsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleSelectedAppActionsMenu();
+  });
+  els.selectedAppActionsMenu?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-selected-app-action]");
+    if (!button) return;
+    runSelectedAppAction(button.dataset.selectedAppAction);
+  });
   els.selectedGitActionsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-selected-git-action]");
     if (!button) return;
-    runSelectedGitAction(button.dataset.selectedGitAction);
+    const action = button.dataset.selectedGitAction;
+    if (SELECTED_GIT_TEXT_ACTIONS[action]) {
+      showSelectedGitTextAction(action);
+      return;
+    }
+    runSelectedGitAction(action);
+  });
+  els.selectedGitTextActionForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!state.selectedGitTextAction) return;
+    runSelectedGitAction(state.selectedGitTextAction, els.selectedGitTextActionInput?.value || "");
+  });
+  els.selectedGitTextActionCancelBtn?.addEventListener("click", () => {
+    hideSelectedGitTextAction();
   });
   els.emptyStartSelectedBtn.addEventListener("click", startSelected);
   if (els.serviceModalActionBtn) {
@@ -1533,6 +1798,15 @@ function bindEvents() {
       !els.selectedGitActionsBtn.contains(event.target)
     ) {
       hideSelectedGitActionsMenu();
+    }
+    if (
+      els.selectedAppActionsMenu &&
+      !els.selectedAppActionsMenu.hidden &&
+      !els.selectedAppActionsMenu.contains(event.target) &&
+      els.selectedAppActionsBtn &&
+      !els.selectedAppActionsBtn.contains(event.target)
+    ) {
+      hideSelectedAppActionsMenu();
     }
   });
 }

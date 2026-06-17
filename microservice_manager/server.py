@@ -445,6 +445,42 @@ class ServiceManager:
         results = [self.stop(name) for name in names]
         return {"ok": all(result.get("ok") for result in results), "message": "Stop signal sent."}
 
+    def start_all(self, commands: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        names = [service.name for service in self.services]
+        command_map = commands if isinstance(commands, dict) else {}
+        results = [{"service": name, **self.start(name, command_map.get(name))} for name in names]
+        failed = [result for result in results if not result.get("ok")]
+        message = (
+            f"{len(results) - len(failed)} of {len(results)} services started."
+            if failed
+            else f"Start signal sent to {len(results)} service(s)."
+        )
+        return {"ok": not failed, "message": message, "results": results}
+
+    def restart_selected(self, names: List[str], commands: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        if not isinstance(names, list):
+            names = []
+        cleaned_names = [str(name).strip() for name in names if str(name).strip()]
+        command_map = commands if isinstance(commands, dict) else {}
+        results: List[Dict[str, Any]] = []
+        if not cleaned_names:
+            return {"ok": False, "message": "Select at least one service.", "results": results}
+
+        for name in cleaned_names:
+            try:
+                result = self.restart(name, command_map.get(name))
+                results.append({"service": name, **result})
+            except Exception as exc:
+                results.append({"service": name, "ok": False, "message": str(exc)})
+
+        failed = [result for result in results if not result.get("ok")]
+        message = (
+            f"{len(results) - len(failed)} of {len(results)} services refreshed."
+            if failed
+            else f"Refresh completed for {len(results)} service(s)."
+        )
+        return {"ok": not failed, "message": message, "results": results}
+
     def restart(self, name: str, command: Optional[str] = None) -> Dict[str, Any]:
         name = str(name or "").strip()
         with self.lock:
@@ -972,9 +1008,10 @@ class ServiceManager:
         except ValueError:
             return 0, 0
 
-    def git_action(self, name: str, action: str) -> Dict[str, Any]:
+    def git_action(self, name: str, action: str, value: Optional[str] = None) -> Dict[str, Any]:
         name = str(name or "").strip()
         action = str(action or "").strip()
+        value = str(value or "").strip()
         with self.lock:
             self.require_service(name)
             service = self.service_by_name[name]
@@ -993,15 +1030,35 @@ class ServiceManager:
             "switch-development": self.git_switch_development,
             "pull-development": self.git_pull_development,
             "sync-current-branch": self.git_sync_current_branch,
+            "checkout-development": self.git_checkout_development,
+            "checkout-pull-development": self.git_pull_development,
             "sync-development": self.git_sync_development,
+            "pull-current-branch": self.git_pull_current_branch,
+            "add-all": self.git_add_all,
+            "push": self.git_push,
+        }
+        value_actions = {
+            "checkout-new-branch": self.git_checkout_new_branch,
+            "commit": self.git_commit,
         }
         handler = actions.get(action)
-        if not handler:
+        value_handler = value_actions.get(action)
+        if not handler and not value_handler:
             return {"ok": False, "message": f"Unknown git action: {action}"}
 
-        result = handler(service)
+        result = value_handler(service, value) if value_handler else handler(service)
         with self.lock:
-            sync_key = "development" if action in {"switch-development", "pull-development", "sync-development"} else "current"
+            sync_key = (
+                "development"
+                if action in {
+                    "switch-development",
+                    "pull-development",
+                    "checkout-development",
+                    "checkout-pull-development",
+                    "sync-development",
+                }
+                else "current"
+            )
             service.git[f"{sync_key}_synced_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             service.git[f"{sync_key}_sync_status"] = "ok" if result.get("ok") else "error"
             service.git[f"{sync_key}_sync_message"] = str(result.get("message", ""))[:500]
@@ -1014,7 +1071,7 @@ class ServiceManager:
         git = self.git_state(service, force=True)
         return {**result, "git": git}
 
-    def git_action_selected(self, names: List[str], action: str) -> Dict[str, Any]:
+    def git_action_selected(self, names: List[str], action: str, value: Optional[str] = None) -> Dict[str, Any]:
         if not isinstance(names, list):
             names = []
         cleaned_names = [str(name).strip() for name in names if str(name).strip()]
@@ -1024,7 +1081,7 @@ class ServiceManager:
 
         for name in cleaned_names:
             try:
-                result = self.git_action(name, action)
+                result = self.git_action(name, action, value)
                 results.append({"service": name, **result})
             except Exception as exc:
                 message = str(exc)
@@ -1047,6 +1104,61 @@ class ServiceManager:
 
     def git_fetch(self, service: ServiceConfig) -> Dict[str, Any]:
         return self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
+
+    def git_checkout_new_branch(self, service: ServiceConfig, branch: str) -> Dict[str, Any]:
+        branch = str(branch or "").strip()
+        if not branch:
+            return {"ok": False, "message": "Branch name is required."}
+        if branch.startswith("-") or any(char.isspace() for char in branch):
+            return {"ok": False, "message": f"Invalid branch name: {branch}"}
+
+        path = self.service_path(service)
+        valid, normalized, stderr, _ = self.run_git(path, ["check-ref-format", "--branch", branch], timeout=2)
+        if not valid:
+            return {"ok": False, "message": stderr.strip() or f"Invalid branch name: {branch}"}
+
+        branch_name = normalized.strip() or branch
+        return self.run_git_action(service, f"checkout -b {branch_name}", ["checkout", "-b", branch_name])
+
+    def git_add_all(self, service: ServiceConfig) -> Dict[str, Any]:
+        return self.run_git_action(service, "add -A", ["add", "-A"])
+
+    def git_commit(self, service: ServiceConfig, message: str) -> Dict[str, Any]:
+        message = str(message or "").strip()
+        if not message:
+            return {"ok": False, "message": "Commit message is required."}
+        add_result = self.git_add_all(service)
+        if not add_result.get("ok"):
+            return add_result
+        commit_result = self.run_git_action(service, f"commit -m {message}", ["commit", "-m", message])
+        return {
+            "ok": bool(commit_result.get("ok")),
+            "message": "\n".join(
+                part
+                for part in [str(add_result.get("message", "")).strip(), str(commit_result.get("message", "")).strip()]
+                if part
+            ),
+        }
+
+    def git_push(self, service: ServiceConfig) -> Dict[str, Any]:
+        git = self.compute_git_state(service)
+        branch = str(git.get("branch", "")).strip()
+        upstream = str(git.get("upstream", "")).strip()
+        if not branch or branch == "HEAD":
+            return {"ok": False, "message": "Current branch could not be resolved."}
+        if upstream:
+            return self.run_git_action(service, "push", ["push"])
+        return self.run_git_action(service, f"push -u origin {branch}", ["push", "-u", "origin", branch])
+
+    def git_pull_current_branch(self, service: ServiceConfig) -> Dict[str, Any]:
+        git = self.compute_git_state(service)
+        branch = str(git.get("branch", "")).strip()
+        upstream = str(git.get("upstream", "")).strip()
+        if not branch or branch == "HEAD":
+            return {"ok": False, "message": "Current branch could not be resolved."}
+        if upstream:
+            return self.run_git_action(service, "pull --ff-only", ["pull", "--ff-only"])
+        return self.run_git_action(service, f"pull --ff-only origin {branch}", ["pull", "--ff-only", "origin", branch])
 
     def git_switch_development(self, service: ServiceConfig) -> Dict[str, Any]:
         steps = [("fetch origin --prune", ["fetch", "origin", "--prune"])]
@@ -1388,6 +1500,8 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/start":
                 self.send_json(self.manager.start(payload.get("service", ""), payload.get("command")))
+            elif parsed.path == "/api/start-all":
+                self.send_json(self.manager.start_all(payload.get("commands", {})))
             elif parsed.path == "/api/start-selected":
                 services = payload.get("services", [])
                 commands = payload.get("commands", {})
@@ -1401,6 +1515,8 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
                 self.send_json(self.manager.stop(payload.get("service", "")))
             elif parsed.path == "/api/refresh":
                 self.send_json(self.manager.restart(payload.get("service", ""), payload.get("command")))
+            elif parsed.path == "/api/refresh-selected":
+                self.send_json(self.manager.restart_selected(payload.get("services", []), payload.get("commands", {})))
             elif parsed.path == "/api/interrupt":
                 self.send_json(self.manager.interrupt(payload.get("service", "")))
             elif parsed.path == "/api/stop-all":
@@ -1420,9 +1536,11 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/services/remove":
                 self.send_json(self.manager.remove_service(payload.get("service", "")))
             elif parsed.path == "/api/git/action":
-                self.send_json(self.manager.git_action(payload.get("service", ""), payload.get("action", "")))
+                self.send_json(self.manager.git_action(payload.get("service", ""), payload.get("action", ""), payload.get("value", "")))
             elif parsed.path == "/api/git/action-selected":
-                self.send_json(self.manager.git_action_selected(payload.get("services", []), payload.get("action", "")))
+                self.send_json(
+                    self.manager.git_action_selected(payload.get("services", []), payload.get("action", ""), payload.get("value", ""))
+                )
             elif parsed.path == "/api/git/terminal":
                 self.send_json(self.manager.run_git_terminal_command(payload.get("service", ""), payload.get("command", "")))
             elif parsed.path == "/api/choose-folder":
