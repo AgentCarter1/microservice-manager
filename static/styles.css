@@ -374,6 +374,14 @@ button:disabled {
   color: var(--muted);
   font: 900 16px/1 "SF Mono", Menlo, Consolas, monospace;
   letter-spacing: 1px;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.service-row:hover .service-row-menu-btn,
+.service-row.active .service-row-menu-btn,
+.service-row-menu-btn:focus-visible {
+  opacity: 1;
 }
 
 .service-row-menu-btn:hover,
@@ -553,7 +561,15 @@ button:disabled {
 .tab .close {
   display: grid;
   place-items: center;
+  height: 100%;
   color: var(--muted);
+  cursor: pointer;
+  transition: color 0.14s ease, background-color 0.14s ease;
+}
+
+.tab .close:hover {
+  color: var(--red);
+  background: var(--panel-3);
 }
 
 .add-tab {
@@ -569,13 +585,54 @@ button:disabled {
 .command-bar {
   margin: 10px 18px 8px;
   min-height: 62px;
-  display: grid;
-  grid-template-columns: auto minmax(160px, 1fr) auto auto minmax(210px, auto) auto auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border-soft);
   background: var(--terminal);
-  padding: 10px 10px 10px 14px;
+  padding: 10px 12px;
+}
+
+.command-bar .prompt {
+  flex: 0 0 auto;
+}
+
+.command-bar > #commandInput {
+  flex: 1 1 260px;
+  min-width: 180px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.command-bar > #commandInput:focus {
+  border-color: var(--accent);
+}
+
+.command-bar .meta-badge {
+  flex: 0 0 auto;
+}
+
+.command-bar .git-summary {
+  flex: 1 1 220px;
+}
+
+.command-bar .git-actions-wrap {
+  flex: 0 0 auto;
+}
+
+/* Run controls cluster, pushed to the far right with a divider */
+.command-bar #refreshAppBtn {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.command-bar #runBtn,
+.command-bar #stopBtn {
+  flex: 0 0 auto;
 }
 
 .prompt {
@@ -624,7 +681,7 @@ button:disabled {
 }
 
 .git-summary strong {
-  max-width: 112px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -743,6 +800,121 @@ button:disabled {
 }
 
 .selected-git-text-action-buttons button[type="submit"] {
+  color: var(--green);
+}
+
+.git-checkout-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.git-checkout-panel input {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--border);
+  outline: 0;
+  background: var(--terminal);
+  color: var(--text);
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-checkout-panel input:focus {
+  border-color: var(--accent);
+}
+
+.git-checkout-list {
+  max-height: 230px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.git-checkout-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.git-checkout-item:hover:not(:disabled) {
+  background: var(--panel-3);
+  border-color: var(--border);
+  color: var(--accent);
+}
+
+.git-checkout-item.current {
+  color: var(--green);
+  background: rgba(78, 230, 167, 0.08);
+}
+
+.git-checkout-item:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.git-checkout-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 11px "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-checkout-tags {
+  flex: 0 0 auto;
+  color: var(--dim);
+  font: 800 8px "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.5px;
+}
+
+.git-checkout-item.current .git-checkout-tags {
+  color: var(--green);
+}
+
+.git-checkout-empty {
+  padding: 10px 9px;
+  color: var(--muted);
+  font: 700 10px/1.4 "SF Mono", Menlo, Consolas, monospace;
+}
+
+.git-checkout-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.git-checkout-buttons button {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: 800 11px "SF Mono", Menlo, Consolas, monospace;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.git-checkout-buttons button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--panel-3);
+}
+
+#gitCheckoutGoBtn {
   color: var(--green);
 }
 
@@ -894,7 +1066,7 @@ button:disabled {
   min-height: 0;
   max-height: 100%;
   margin: 0;
-  padding: 18px 22px 100px;
+  padding: 18px 22px 56px;
   overflow: auto;
   overscroll-behavior: contain;
   white-space: pre-wrap;
@@ -1015,34 +1187,37 @@ button:disabled {
 
 .metrics {
   position: absolute;
-  right: 20px;
-  bottom: 18px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
   gap: 0;
-  border: 1px solid var(--border);
-  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  background: rgba(17, 26, 45, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
 }
 
 .metrics div {
-  min-width: 116px;
-  padding: 12px 14px;
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 12px;
 }
 
 .metrics div + div {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-soft);
 }
 
 .metrics span {
-  color: var(--text);
-  font: 800 10px "SF Mono", Menlo, Consolas, monospace;
+  color: var(--muted);
+  font: 800 9px "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.5px;
 }
 
 .metrics strong {
   color: var(--accent);
-  font: 800 13px "SF Mono", Menlo, Consolas, monospace;
+  font: 800 12px "SF Mono", Menlo, Consolas, monospace;
 }
 
 .statusbar {
@@ -1343,16 +1518,8 @@ button:disabled {
     width: 100%;
   }
 
-  .command-bar {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .command-bar > .meta-badge,
-  .command-bar > .git-summary,
-  .command-bar > .git-actions-wrap,
-  .command-bar > .run,
-  .command-bar > .soft {
-    grid-column: span 2;
+  .command-bar #refreshAppBtn {
+    margin-left: 0;
   }
 
   .git-summary {

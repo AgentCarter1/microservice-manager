@@ -27,6 +27,9 @@ const state = {
   selectedGitBusy: false,
   selectedGitTextAction: null,
   gitTerminalBusy: false,
+  gitCheckoutOpen: false,
+  gitCheckoutBranches: [],
+  gitCheckoutLoading: false,
 };
 
 const els = {
@@ -95,6 +98,11 @@ const els = {
   gitLastSyncLabel: document.getElementById("gitLastSyncLabel"),
   gitActionsBtn: document.getElementById("gitActionsBtn"),
   gitActionsMenu: document.getElementById("gitActionsMenu"),
+  gitCheckoutPanel: document.getElementById("gitCheckoutPanel"),
+  gitCheckoutInput: document.getElementById("gitCheckoutInput"),
+  gitCheckoutList: document.getElementById("gitCheckoutList"),
+  gitCheckoutGoBtn: document.getElementById("gitCheckoutGoBtn"),
+  gitCheckoutCancelBtn: document.getElementById("gitCheckoutCancelBtn"),
   selectedAppActionsBtn: document.getElementById("selectedAppActionsBtn"),
   selectedAppActionsMenu: document.getElementById("selectedAppActionsMenu"),
   selectedGitActionsBtn: document.getElementById("selectedGitActionsBtn"),
@@ -134,6 +142,8 @@ const SELECTED_GIT_TEXT_ACTIONS = {
 
 const GIT_ACTION_LABELS = {
   refresh: "Refresh",
+  checkout: "Git Checkout",
+  "checkout-branch": "Checkout",
   "switch-development": "Checkout Development",
   "pull-development": "Checkout + Pull",
   "sync-current-branch": "Sync Current",
@@ -1126,6 +1136,8 @@ async function stopSelected() {
   const toastId = showToast({ status: "working", title: `Durduruluyor · ${services.length} servis`, message: "Çalışıyor..." });
   const result = await post("/api/stop-selected", { services });
   reportSelectedResult(toastId, "Durdur", services.length, result);
+  services.forEach(ensureTab);
+  if (!services.includes(state.current)) selectService(services[0]);
   clearSelection();
   await refreshState();
 }
@@ -1323,6 +1335,97 @@ function toggleGitActionsMenu() {
 
 function hideGitActionsMenu() {
   if (els.gitActionsMenu) els.gitActionsMenu.hidden = true;
+  closeGitCheckout();
+}
+
+function closeGitCheckout() {
+  state.gitCheckoutOpen = false;
+  if (els.gitCheckoutPanel) els.gitCheckoutPanel.hidden = true;
+  if (els.gitCheckoutInput) els.gitCheckoutInput.value = "";
+}
+
+async function openGitCheckout() {
+  if (!els.gitCheckoutPanel || !state.current) return;
+  state.gitCheckoutOpen = true;
+  els.gitCheckoutPanel.hidden = false;
+  if (els.gitCheckoutInput) els.gitCheckoutInput.value = "";
+  state.gitCheckoutLoading = true;
+  state.gitCheckoutBranches = [];
+  renderGitCheckoutList();
+  els.gitCheckoutInput?.focus();
+  const serviceName = state.current;
+  try {
+    const data = await api(`/api/git/branches?service=${encodeURIComponent(serviceName)}`);
+    if (state.current !== serviceName || !state.gitCheckoutOpen) return;
+    if (!data.ok) {
+      state.gitCheckoutBranches = [];
+      notifyError("Branch listelenemedi", data.message || "", 6000);
+    } else {
+      state.gitCheckoutBranches = data.branches || [];
+    }
+  } catch (error) {
+    notifyError("Branch listelenemedi", error?.message || "", 6000);
+  } finally {
+    state.gitCheckoutLoading = false;
+    renderGitCheckoutList();
+  }
+}
+
+function renderGitCheckoutList() {
+  if (!els.gitCheckoutList) return;
+  els.gitCheckoutList.replaceChildren();
+  if (state.gitCheckoutLoading) {
+    const loading = document.createElement("div");
+    loading.className = "git-checkout-empty";
+    loading.textContent = "Yükleniyor...";
+    els.gitCheckoutList.append(loading);
+    return;
+  }
+  const filter = (els.gitCheckoutInput?.value || "").trim().toLowerCase();
+  const branches = state.gitCheckoutBranches.filter((branch) => !filter || branch.name.toLowerCase().includes(filter));
+  if (!branches.length) {
+    const empty = document.createElement("div");
+    empty.className = "git-checkout-empty";
+    empty.textContent = state.gitCheckoutBranches.length
+      ? `Eşleşen branch yok. Enter ile "${els.gitCheckoutInput?.value.trim() || ""}" dene.`
+      : "Branch bulunamadı.";
+    els.gitCheckoutList.append(empty);
+    return;
+  }
+  branches.slice(0, 200).forEach((branch) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `git-checkout-item ${branch.current ? "current" : ""}`;
+    row.disabled = branch.current || state.gitBusy;
+    const name = document.createElement("span");
+    name.className = "git-checkout-name";
+    name.textContent = branch.name;
+    const tags = document.createElement("span");
+    tags.className = "git-checkout-tags";
+    if (branch.current) tags.textContent = "CURRENT";
+    else if (!branch.local && branch.remote) tags.textContent = "REMOTE";
+    else if (branch.local && branch.remote) tags.textContent = "LOCAL";
+    else tags.textContent = "LOCAL";
+    row.append(name, tags);
+    row.addEventListener("click", () => checkoutBranch(branch.name));
+    els.gitCheckoutList.append(row);
+  });
+}
+
+function submitGitCheckout() {
+  const value = (els.gitCheckoutInput?.value || "").trim();
+  if (!value) {
+    notifyError("Eksik bilgi", "Branch adı gerekli.", 5000);
+    els.gitCheckoutInput?.focus();
+    return;
+  }
+  checkoutBranch(value);
+}
+
+async function checkoutBranch(branch) {
+  if (!branch) return;
+  closeGitCheckout();
+  await runGitAction("checkout-branch", branch);
 }
 
 function toggleSelectedAppActionsMenu() {
@@ -1394,19 +1497,20 @@ async function runSelectedAppAction(action) {
   }
 }
 
-async function runGitAction(action) {
+async function runGitAction(action, value = "") {
   const serviceName = state.current;
   if (!serviceName || !action) return;
   const label = gitActionLabel(action);
+  const suffix = value ? ` → ${value}` : "";
   hideGitActionsMenu();
   state.gitBusy = true;
   renderCommandBar();
-  const toastId = showToast({ status: "working", title: `${label} · ${serviceName}`, message: "Çalışıyor..." });
+  const toastId = showToast({ status: "working", title: `${label}${suffix} · ${serviceName}`, message: "Çalışıyor..." });
   try {
-    const result = await post("/api/git/action", { service: serviceName, action });
+    const result = await post("/api/git/action", { service: serviceName, action, value });
     updateToast(toastId, {
       status: result.ok ? "success" : "error",
-      title: `${result.ok ? "Tamamlandı" : "Başarısız"}: ${label} · ${serviceName}`,
+      title: `${result.ok ? "Tamamlandı" : "Başarısız"}: ${label}${suffix} · ${serviceName}`,
       message: result.message || (result.ok ? "Git işlemi tamamlandı." : "Git işlemi başarısız oldu."),
       ttl: result.ok ? 4200 : 8000,
     });
@@ -1415,7 +1519,7 @@ async function runGitAction(action) {
   } catch (error) {
     updateToast(toastId, {
       status: "error",
-      title: `Başarısız: ${label} · ${serviceName}`,
+      title: `Başarısız: ${label}${suffix} · ${serviceName}`,
       message: error?.message || "Git işlemi başarısız oldu.",
       ttl: 8000,
     });
@@ -1443,11 +1547,12 @@ async function runSelectedGitAction(action, value = "") {
     title: `${label} · ${services.length} servis`,
     message: "Çalışıyor...",
   });
+  services.forEach(ensureTab);
   if (!services.includes(state.current)) {
     selectService(services[0]);
   }
   setTerminalMode("git");
-  renderHeader();
+  renderAll();
   try {
     const result = await post("/api/git/action-selected", { services, action, value: trimmedValue });
     await refreshState();
@@ -1809,8 +1914,23 @@ function bindEvents() {
   els.gitActionsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-git-action]");
     if (!button) return;
-    runGitAction(button.dataset.gitAction);
+    const action = button.dataset.gitAction;
+    if (action === "checkout") {
+      if (state.gitCheckoutOpen) closeGitCheckout();
+      else openGitCheckout();
+      return;
+    }
+    runGitAction(action);
   });
+  els.gitCheckoutInput?.addEventListener("input", renderGitCheckoutList);
+  els.gitCheckoutInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitGitCheckout();
+    }
+  });
+  els.gitCheckoutGoBtn?.addEventListener("click", submitGitCheckout);
+  els.gitCheckoutCancelBtn?.addEventListener("click", closeGitCheckout);
   els.selectedGitActionsBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleSelectedGitActionsMenu();

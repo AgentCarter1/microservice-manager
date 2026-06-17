@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Miroservice Manager</title>
     <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260617-3" />
+    <link rel="stylesheet" href="/styles.css?v=20260617-6" />
   </head>
   <body>
     <div id="appSplash" class="app-splash" role="status" aria-live="polite">
@@ -110,9 +110,18 @@
           <div class="git-actions-wrap">
             <button id="gitActionsBtn" class="soft" type="button">Git Actions v</button>
             <div id="gitActionsMenu" class="git-actions-menu" hidden>
+              <button data-git-action="checkout" type="button">Git Checkout</button>
               <button data-git-action="refresh" type="button">Refresh</button>
               <button data-git-action="sync-current-branch" type="button">Sync Current Branch</button>
               <button data-git-action="sync-development" type="button">Sync Development</button>
+              <div id="gitCheckoutPanel" class="git-checkout-panel" hidden>
+                <input id="gitCheckoutInput" autocomplete="off" placeholder="Branch ara veya yaz..." />
+                <div id="gitCheckoutList" class="git-checkout-list"></div>
+                <div class="git-checkout-buttons">
+                  <button id="gitCheckoutGoBtn" type="button">Checkout</button>
+                  <button id="gitCheckoutCancelBtn" type="button">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
           <button id="refreshAppBtn" class="soft">Refresh App</button>
@@ -221,6 +230,6 @@
 
     <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-    <script src="/app.js?v=20260617-2"></script>
+    <script src="/app.js?v=20260617-6"></script>
   </body>
 </html>

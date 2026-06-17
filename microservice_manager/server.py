@@ -1039,6 +1039,7 @@ class ServiceManager:
         }
         value_actions = {
             "checkout-new-branch": self.git_checkout_new_branch,
+            "checkout-branch": self.git_checkout_branch,
             "commit": self.git_commit,
         }
         handler = actions.get(action)
@@ -1232,6 +1233,72 @@ class ServiceManager:
                 ["checkout", "-b", "development", "--track", "origin/development"],
             )
         return {"ok": False, "message": "origin/development branch was not found. Run fetch first."}
+
+    def git_checkout_branch(self, service: ServiceConfig, branch: str) -> Dict[str, Any]:
+        branch = str(branch or "").strip()
+        if not branch:
+            return {"ok": False, "message": "Branch name is required."}
+        if branch.startswith("-") or any(char.isspace() for char in branch):
+            return {"ok": False, "message": f"Invalid branch name: {branch}"}
+
+        path = self.service_path(service)
+        valid, normalized, stderr, _ = self.run_git(path, ["check-ref-format", "--branch", branch], timeout=2)
+        branch = (normalized.strip() if valid else "") or branch
+
+        local_ok, _, _, _ = self.run_git(path, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], timeout=2)
+        if local_ok:
+            return self.run_git_action(service, f"checkout {branch}", ["checkout", branch])
+
+        origin_ok, _, _, _ = self.run_git(path, ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch}"], timeout=2)
+        if origin_ok:
+            return self.run_git_action(
+                service,
+                f"checkout -b {branch} --track origin/{branch}",
+                ["checkout", "-b", branch, "--track", f"origin/{branch}"],
+            )
+        return {"ok": False, "message": f"Branch not found locally or on origin: {branch}"}
+
+    def git_list_branches(self, name: str) -> Dict[str, Any]:
+        name = str(name or "").strip()
+        with self.lock:
+            self.require_service(name)
+            service = self.service_by_name[name]
+
+        path = self.service_path(service)
+        if not path.exists():
+            return {"ok": False, "message": f"Directory not found: {path}", "branches": [], "current": ""}
+
+        repo_ok, _, stderr, _ = self.run_git(path, ["rev-parse", "--is-inside-work-tree"], timeout=2)
+        if not repo_ok:
+            return {"ok": False, "message": stderr.strip() or f"{name} is not a git repository.", "branches": [], "current": ""}
+
+        cur_ok, current, _, _ = self.run_git(path, ["rev-parse", "--abbrev-ref", "HEAD"], timeout=2)
+        current = current.strip() if cur_ok else ""
+        local_ok, local_out, _, _ = self.run_git(path, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout=5)
+        remote_ok, remote_out, _, _ = self.run_git(
+            path, ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], timeout=5
+        )
+
+        local = [line.strip() for line in local_out.splitlines() if line.strip()] if local_ok else []
+        remote = []
+        if remote_ok:
+            for line in remote_out.splitlines():
+                ref = line.strip()
+                if not ref or ref.endswith("/HEAD"):
+                    continue
+                remote.append(ref[len("origin/"):] if ref.startswith("origin/") else ref)
+
+        branches: List[Dict[str, Any]] = []
+        seen = set()
+        for branch in local:
+            branches.append({"name": branch, "local": True, "remote": branch in remote, "current": branch == current})
+            seen.add(branch)
+        for branch in remote:
+            if branch in seen:
+                continue
+            branches.append({"name": branch, "local": False, "remote": True, "current": False})
+            seen.add(branch)
+        return {"ok": True, "current": current, "branches": branches}
 
     def git_sync_development(self, service: ServiceConfig) -> Dict[str, Any]:
         steps = [
@@ -1491,6 +1558,10 @@ class MiroserviceManagerHandler(BaseHTTPRequestHandler):
                 service = params.get("service", [""])[0]
                 after = int(params.get("after", ["0"])[0] or 0)
                 self.send_json(self.manager.git_logs_after(service, after))
+            elif parsed.path == "/api/git/branches":
+                params = parse_qs(parsed.query)
+                service = params.get("service", [""])[0]
+                self.send_json(self.manager.git_list_branches(service))
             else:
                 self.serve_static(parsed.path)
         except Exception as exc:
