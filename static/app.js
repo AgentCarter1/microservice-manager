@@ -130,7 +130,7 @@ const els = {
 const SELECTED_GIT_TEXT_ACTIONS = {
   "checkout-new-branch": {
     label: "Branch name",
-    placeholder: "feature/new-branch",
+    placeholder: "feature/new-branch (veya tam komut)",
     emptyMessage: "Branch name is required.",
   },
   commit: {

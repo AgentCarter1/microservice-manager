@@ -1106,8 +1106,39 @@ class ServiceManager:
     def git_fetch(self, service: ServiceConfig) -> Dict[str, Any]:
         return self.run_git_action(service, "fetch origin --prune", ["fetch", "origin", "--prune"])
 
+    @staticmethod
+    def normalize_branch_input(value: str) -> str:
+        """Accept a bare branch name or a pasted git command and return the branch.
+
+        Strips leading command tokens such as `git checkout -b`, `git switch -c`,
+        `git branch`, or a leading `-b/-c` flag so users can paste a full command.
+        If the result is not a single clean token, the original value is returned
+        so downstream validation reports a clear error.
+        """
+        value = str(value or "").strip()
+        if not value:
+            return value
+        tokens = value.split()
+        skip = {
+            "git",
+            "checkout",
+            "switch",
+            "branch",
+            "co",
+            "sw",
+            "-b",
+            "-B",
+            "-c",
+            "-C",
+            "--track",
+            "--no-track",
+        }
+        while tokens and tokens[0] in skip:
+            tokens.pop(0)
+        return tokens[0] if len(tokens) == 1 else value
+
     def git_checkout_new_branch(self, service: ServiceConfig, branch: str) -> Dict[str, Any]:
-        branch = str(branch or "").strip()
+        branch = self.normalize_branch_input(branch)
         if not branch:
             return {"ok": False, "message": "Branch name is required."}
         if branch.startswith("-") or any(char.isspace() for char in branch):
@@ -1235,7 +1266,7 @@ class ServiceManager:
         return {"ok": False, "message": "origin/development branch was not found. Run fetch first."}
 
     def git_checkout_branch(self, service: ServiceConfig, branch: str) -> Dict[str, Any]:
-        branch = str(branch or "").strip()
+        branch = self.normalize_branch_input(branch)
         if not branch:
             return {"ok": False, "message": "Branch name is required."}
         if branch.startswith("-") or any(char.isspace() for char in branch):
